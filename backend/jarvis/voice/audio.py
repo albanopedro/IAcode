@@ -55,8 +55,8 @@ def read_wav(source: str | Path | bytes) -> AudioClip:
     return AudioClip.from_int16(ints, rate)
 
 
-def write_wav(clip: AudioClip, path: str | Path) -> None:
-    with wave.open(str(path), "wb") as wav:
+def write_wav(clip: AudioClip, target: str | Path | io.BytesIO) -> None:
+    with wave.open(target if isinstance(target, io.BytesIO) else str(target), "wb") as wav:
         wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(clip.sample_rate)

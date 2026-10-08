@@ -7,6 +7,7 @@ python -m jarvis unblock <id>      # lift a persisted cost/billing block
 python -m jarvis voice             # talk by voice (needs the [voice] extra)
 python -m jarvis speak "..."       # test the voice
 python -m jarvis transcribe a.wav  # test speech-to-text
+python -m jarvis serve             # web interface API on http://127.0.0.1:8300
 """
 
 from __future__ import annotations
@@ -193,7 +194,22 @@ def main(argv: list[str] | None = None) -> int:
     speak.add_argument("--tts", choices=["say", "piper"])
     transcribe = sub.add_parser("transcribe", help="transcribe a 16-bit WAV file")
     transcribe.add_argument("path")
+    serve = sub.add_parser("serve", help="run the web interface server (127.0.0.1 only)")
+    serve.add_argument("--port", type=int, default=8300)
     args = parser.parse_args(argv)
+
+    if args.command == "serve":
+        try:
+            import uvicorn
+
+            from jarvis.server.app import create_app, default_origins
+        except ImportError as exc:
+            print(f"servidor indisponível ({exc}). Instale com: pip install -e '.[server]'")
+            return 2
+        app = create_app(allowed_origins=default_origins(args.port))
+        # Never 0.0.0.0: JARVIS must not be reachable from the network.
+        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+        return 0
 
     if args.command in ("voice", "speak", "transcribe"):
         try:

@@ -14,8 +14,9 @@ Assistente pessoal multimodelo inspirado no JARVIS. Conversa com vários agentes
 | 1. Pesquisa e arquitetura | ✅ |
 | 2. Core: orchestrator, adapters, fallback, status | ✅ |
 | 3. Multi-agent: limites, ranking, health checks, persistência | ✅ |
-| 4. Voz: STT, TTS, streaming por frase, conversa contínua | ✅ (aguardando revisão) |
-| 5–9. Interface, memória, tools, IA local, polimento | ⏳ |
+| 4. Voz: STT, TTS, streaming por frase, conversa contínua | ✅ |
+| 5. Interface web: orb, estados, voz no navegador, status dos agentes | ✅ (aguardando revisão) |
+| 6–9. Memória, tools, IA local, polimento | ⏳ |
 
 ## Como rodar (backend, texto)
 
@@ -31,6 +32,32 @@ python3 -m venv .venv
 
 Testes: `.venv/bin/pytest`. O teste real e gratuito com o OpenCode é opcional:
 `JARVIS_LIVE_TESTS=1 .venv/bin/pytest -m live`.
+
+### Interface web
+
+```bash
+cd backend && .venv/bin/pip install -e ".[dev,voice,server]"
+cd ../web && npm install && npm run build
+cd ../backend && .venv/bin/python -m jarvis serve      # abra http://127.0.0.1:8300
+```
+
+Em desenvolvimento, rode `python -m jarvis serve` e, em outro terminal, `npm run dev`
+dentro de `web/`, e abra http://127.0.0.1:5300 (o Vite repassa `/api` e `/ws`).
+
+- **Orb** que muda com o estado: pronto, ouvindo, pensando, falando, sem conexão. Ele
+  reage ao volume do seu microfone ou da voz do JARVIS.
+- **Conversa por voz no navegador:** o microfone vira PCM 16 kHz e vai pelo WebSocket;
+  a voz volta como WAV, frase por frase. O microfone fica mudo enquanto o JARVIS fala.
+  Também tem botão de interromper.
+- **Conversa escrita**, com a opção de ouvir as respostas.
+- **Painel de agentes:** disponibilidade, cota restante, taxa de sucesso, latência,
+  qual agente respondeu e o modo de custo 🔒 `FREE_ONLY`.
+- **Segurança:**
+  - o servidor só escuta em `127.0.0.1`;
+  - só as páginas do próprio JARVIS são aceitas (verificação de `Origin`), então
+    outro site aberto no navegador não consegue usar o JARVIS;
+  - nenhuma chave vai para o navegador;
+  - mensagens têm tamanho limitado.
 
 ### Voz (local e gratuita)
 

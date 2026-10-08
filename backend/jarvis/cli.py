@@ -1,14 +1,16 @@
-"""Text CLI for Phase 2: check agents and chat with JARVIS in the terminal.
+"""Text CLI: check agents and chat with JARVIS in the terminal.
 
-python -m jarvis status        # health of every agent (spends no quota)
-python -m jarvis ask "..."     # one question
-python -m jarvis chat          # conversation; /status, /limpar, /sair
+python -m jarvis status [--json]   # health of every agent (spends no quota)
+python -m jarvis ask "..."         # one question
+python -m jarvis chat              # conversation; /status, /limpar, /sair
+python -m jarvis unblock <id>      # lift a persisted cost/billing block
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from datetime import UTC, datetime
 
@@ -18,8 +20,10 @@ from jarvis.core.agent_manager import AgentManager
 from jarvis.core.conversation import Conversation
 from jarvis.core.cost_guard import CostGuard
 from jarvis.core.errors import AllAgentsFailedError
+from jarvis.core.health_monitor import HealthMonitor
 from jarvis.core.orchestrator import Orchestrator
 from jarvis.core.types import AgentStatus, Health, OrchestratorResult
+from jarvis.core.usage_store import UsageStore
 
 ICONS = {
     Health.AVAILABLE: "🟢",
@@ -31,10 +35,11 @@ ICONS = {
 }
 
 
-def build() -> tuple[AgentManager, Orchestrator]:
+def build() -> tuple[AgentManager, Orchestrator, float]:
     settings = load_settings()
-    manager = AgentManager(build_agents(settings), CostGuard(settings.cost_mode))
-    return manager, Orchestrator(manager)
+    store = UsageStore(settings.data_dir / "jarvis.db")
+    manager = AgentManager(build_agents(settings), CostGuard(settings.cost_mode), store=store)
+    return manager, Orchestrator(manager), settings.health_interval
 
 
 def format_status(status: AgentStatus) -> str:
@@ -45,7 +50,13 @@ def format_status(status: AgentStatus) -> str:
         seconds = (status.cooldown_until - datetime.now(UTC)).total_seconds()
         extras.append(f"cooldown {max(seconds, 0):.0f}s")
     if status.remaining_usage is not None:
-        extras.append(f"restam {status.remaining_usage}/{status.rate_limit} hoje")
+        origin = "provedor" if status.remaining_source == "provider" else "hoje"
+        total = f"/{status.rate_limit}" if status.rate_limit else ""
+        extras.append(f"restam {status.remaining_usage}{total} ({origin})")
+    if status.rpm_limit:
+        extras.append(f"{status.requests_last_minute}/{status.rpm_limit} por min")
+    if status.success_rate is not None:
+        extras.append(f"sucesso {status.success_rate:.0%}")
     if status.avg_latency_ms is not None:
         extras.append(f"{status.avg_latency_ms / 1000:.1f}s")
     if status.last_error and status.health is not Health.AVAILABLE:
@@ -70,6 +81,9 @@ def print_result(result: OrchestratorResult) -> None:
     for attempt in result.attempts:
         if not attempt.ok:
             print(f"    ✗ {attempt.agent_id}: {attempt.error}")
+    if result.ranking:
+        top = " · ".join(f"{r.agent_id} {r.score:g}" for r in result.ranking[:4])
+        print(f"    ranking: {top}")
 
 
 def print_failure(error: AllAgentsFailedError) -> None:
@@ -78,18 +92,40 @@ def print_failure(error: AllAgentsFailedError) -> None:
         print(f"    ✗ {attempt.agent_id}: {attempt.error}")
 
 
-async def cmd_status() -> int:
-    manager, _ = build()
+async def cmd_status(as_json: bool = False) -> int:
+    manager, _, _ = build()
     try:
         await manager.refresh_health(force=True)
-        print_statuses(manager)
+        if as_json:
+            payload = {
+                "cost_mode": manager.cost_guard.mode.value,
+                "agents": [s.model_dump(mode="json") for s in manager.statuses()],
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print_statuses(manager)
     finally:
         await manager.close()
     return 0
 
 
+async def cmd_unblock(agent_id: str) -> int:
+    manager, _, _ = build()
+    try:
+        if agent_id not in {p.id for p in manager.providers}:
+            print(f"agente desconhecido: {agent_id}")
+            return 2
+        if manager.unblock(agent_id):
+            print(f"{agent_id} desbloqueado. Ele será verificado de novo antes do próximo uso.")
+            return 0
+        print(f"{agent_id} não estava bloqueado, ou é pago (bloqueado pelo COST_MODE).")
+        return 1
+    finally:
+        await manager.close()
+
+
 async def cmd_ask(question: str) -> int:
-    manager, orchestrator = build()
+    manager, orchestrator, _ = build()
     try:
         result = await orchestrator.ask(Conversation(), question)
         print_result(result)
@@ -102,8 +138,10 @@ async def cmd_ask(question: str) -> int:
 
 
 async def cmd_chat() -> int:
-    manager, orchestrator = build()
+    manager, orchestrator, interval = build()
     conversation = Conversation()
+    monitor = HealthMonitor(manager, interval)
+    monitor.start()
     print("JARVIS pronto. Comandos: /status, /limpar, /sair\n")
     try:
         while True:
@@ -129,6 +167,7 @@ async def cmd_chat() -> int:
             except AllAgentsFailedError as exc:
                 print_failure(exc)
     finally:
+        await monitor.stop()
         await manager.close()
     return 0
 
@@ -136,14 +175,19 @@ async def cmd_chat() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jarvis", description="JARVIS — only free AI agents")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("status", help="show the health of every agent (spends no quota)")
+    status = sub.add_parser("status", help="show the health of every agent (spends no quota)")
+    status.add_argument("--json", action="store_true", help="machine-readable output")
     ask = sub.add_parser("ask", help="ask one question")
     ask.add_argument("question", nargs="+")
     sub.add_parser("chat", help="start a conversation")
+    unblock = sub.add_parser("unblock", help="lift a persisted cost/billing block")
+    unblock.add_argument("agent_id")
     args = parser.parse_args(argv)
 
     if args.command == "status":
-        return asyncio.run(cmd_status())
+        return asyncio.run(cmd_status(args.json))
+    if args.command == "unblock":
+        return asyncio.run(cmd_unblock(args.agent_id))
     if args.command == "ask":
         return asyncio.run(cmd_ask(" ".join(args.question)))
     return asyncio.run(cmd_chat())

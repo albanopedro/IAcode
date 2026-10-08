@@ -42,6 +42,11 @@ class FakeAgent(AIProvider):
         cost: float | None = 0.0,
         latency_ms: float = 100.0,
         allow_paid: bool = False,
+        rpm_limit: int | None = None,
+        quota_group: str | None = None,
+        quality: dict | None = None,
+        context_window: int | None = None,
+        rate_limit=None,
     ) -> None:
         self.info = AgentInfo(
             id=agent_id,
@@ -54,7 +59,12 @@ class FakeAgent(AIProvider):
             privacy=privacy,
             daily_limit=daily_limit,
             allow_paid=allow_paid,
+            rpm_limit=rpm_limit,
+            quota_group=quota_group,
+            quality=quality or {},
+            context_window=context_window,
         )
+        self.rate_limit = rate_limit
         self.script = list(script or [f"resposta de {agent_id}"])
         self.health = health
         self.cost = cost
@@ -78,6 +88,7 @@ class FakeAgent(AIProvider):
             model=self.info.model,
             cost=self.cost,
             latency_ms=self.latency_ms,
+            rate_limit=self.rate_limit,
         )
 
     async def close(self) -> None:

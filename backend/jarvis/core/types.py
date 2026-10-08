@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
@@ -79,7 +80,23 @@ class AgentInfo(BaseModel):
     priority: int = 50  # 0..100, higher is preferred
     privacy: Privacy = Privacy.UNKNOWN
     daily_limit: int | None = None  # known requests/day quota, if any
+    rpm_limit: int | None = None  # known requests/minute quota, if any
+    # Agents sharing one provider quota (e.g. all OpenRouter free models of one
+    # account) use the same group: daily and per-minute counters are shared.
+    quota_group: str | None = None
+    context_window: int | None = None  # tokens the model accepts, if known
+    # How good the agent is at each task (0..1). Missing tasks fall back to the
+    # capabilities: 0.6 when the agent has the task's capability, 0.2 otherwise.
+    quality: Mapping[TaskType, float] = Field(default_factory=dict)
     allow_paid: bool = False  # explicit per-agent opt-in, only honoured in ALLOW_PAID mode
+
+
+class RateLimitInfo(BaseModel):
+    """Quota reported by the provider itself (response headers)."""
+
+    limit: int | None = None
+    remaining: int | None = None
+    reset_seconds: float | None = None
 
 
 class AgentStatus(BaseModel):
@@ -92,7 +109,10 @@ class AgentStatus(BaseModel):
     health: Health
     available: bool
     remaining_usage: int | None = None
+    remaining_source: Literal["provider", "local"] | None = None
     rate_limit: int | None = None
+    rpm_limit: int | None = None
+    requests_last_minute: int = 0
     cooldown_until: datetime | None = None
     last_error: str | None = None
     capabilities: list[Capability]
@@ -104,7 +124,9 @@ class AgentStatus(BaseModel):
     failures: int = 0
     consecutive_failures: int = 0
     avg_latency_ms: float | None = None
+    success_rate: float | None = None  # over the last calls
     requests_today: int = 0
+    context_window: int | None = None
 
 
 class Message(BaseModel):
@@ -127,6 +149,7 @@ class AIResponse(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     latency_ms: float = 0.0
+    rate_limit: RateLimitInfo | None = None
 
 
 class Attempt(BaseModel):
@@ -136,7 +159,13 @@ class Attempt(BaseModel):
     latency_ms: float = 0.0
 
 
+class RankedAgent(BaseModel):
+    agent_id: str
+    score: float
+
+
 class OrchestratorResult(BaseModel):
     response: AIResponse
     task: TaskType
     attempts: list[Attempt] = Field(default_factory=list)
+    ranking: list[RankedAgent] = Field(default_factory=list)

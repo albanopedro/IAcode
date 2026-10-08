@@ -12,8 +12,9 @@ Assistente pessoal multimodelo inspirado no JARVIS. Conversa com vários agentes
 | Fase | Status |
 |---|---|
 | 1. Pesquisa e arquitetura | ✅ |
-| 2. Core: orchestrator, adapters, fallback, status | ✅ (aguardando revisão) |
-| 3–9. Multi-agent, voz, interface, memória, tools, IA local, polimento | ⏳ |
+| 2. Core: orchestrator, adapters, fallback, status | ✅ |
+| 3. Multi-agent: limites, ranking, health checks, persistência | ✅ (aguardando revisão) |
+| 4–9. Voz, interface, memória, tools, IA local, polimento | ⏳ |
 
 ## Como rodar (backend, texto)
 
@@ -21,9 +22,10 @@ Assistente pessoal multimodelo inspirado no JARVIS. Conversa com vários agentes
 cd backend
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m jarvis status    # saúde dos agentes (não gasta cota)
-.venv/bin/python -m jarvis chat      # conversa: /status, /limpar, /sair
+.venv/bin/python -m jarvis status          # saúde dos agentes (não gasta cota); --json
+.venv/bin/python -m jarvis chat            # conversa: /status, /limpar, /sair
 .venv/bin/python -m jarvis ask "Explique Docker em uma frase"
+.venv/bin/python -m jarvis unblock <id>    # libera um agente bloqueado por custo
 ```
 
 Testes: `.venv/bin/pytest`. O teste real e gratuito com o OpenCode é opcional:
@@ -36,6 +38,10 @@ Copie `.env.example` para `.env` e preencha só o que for usar. As contas devem 
 
 - `GROQ_API_KEY`: plano Free do Groq, com limite diário que reinicia.
 - `OPENROUTER_API_KEY`: só modelos `:free`, e nunca comprar créditos.
+- `MISTRAL_API_KEY`: plano Experiment (verificação por telefone, sem cartão). Por
+  padrão os dados podem ser usados para treino; dá para desligar no console.
+- `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN`: plano Workers Free, com 10.000
+  Neurons por dia. Passado o limite, os pedidos falham em vez de cobrar.
 
 Sem chave, o agente aparece como ⚪ `unconfigured` e o JARVIS segue com os outros.
 
@@ -62,6 +68,29 @@ Usuário ─► Orchestrator ─► classifica a tarefa (chat / code / math / re
 - `config/agents.toml`: agentes, prioridades e capacidades. **Não guarda segredos.**
 - O histórico da conversa pertence ao JARVIS, e não ao agente. Por isso trocar de agente
   no meio da conversa não perde o contexto.
+
+### Limites, ranking e saúde (Fase 3)
+
+- **Limites:**
+  - por dia (`daily_limit`) e por minuto (`rpm_limit`), respeitados localmente antes
+    do provedor responder com 429;
+  - a cota informada pelo próprio provedor nos cabeçalhos (`x-ratelimit-*`) tem
+    prioridade;
+  - `quota_group`: modelos que dividem a cota da mesma conta (por exemplo, os
+    gratuitos do OpenRouter) dividem também os contadores.
+- **Persistência** (`data/jarvis.db`, só contadores e estados, nunca conversas nem
+  chaves):
+  - o uso do dia e os cooldowns sobrevivem a um reinício;
+  - **um agente bloqueado por custo continua bloqueado** até um
+    `jarvis unblock <id>` explícito.
+- **Ranking:**
+  - prioridade, mais qualidade por tarefa (`quality` no `agents.toml`);
+  - menos penalidades por taxa de sucesso recente, falhas seguidas e latência;
+  - bônus de privacidade;
+  - agentes cuja janela de contexto não comporta a conversa ficam de fora.
+- **Saúde:** no `jarvis chat`, um monitor em segundo plano verifica todos os
+  agentes a cada `health_interval` segundos, sem gastar cota. Um agente offline
+  volta sozinho quando a verificação passa.
 
 ### Como o OpenCode é usado (e por quê)
 

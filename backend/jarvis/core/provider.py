@@ -31,6 +31,11 @@ class AIProvider(ABC):
     def supports(self, capability: Capability) -> bool:
         return capability in self.info.capabilities
 
+    @property
+    def context_window(self) -> int | None:
+        """Tokens the model accepts. Adapters that discover it at runtime override this."""
+        return self.info.context_window
+
     @abstractmethod
     async def check_health(self) -> HealthReport:
         """Cheap check that never spends quota (no generation)."""

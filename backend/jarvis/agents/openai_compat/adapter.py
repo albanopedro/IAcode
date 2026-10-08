@@ -1,6 +1,8 @@
 """Generic adapter for OpenAI-compatible chat APIs (Groq, OpenRouter, Mistral…).
 
-Adding one of these providers is configuration, not code. Free-only safety:
+Adding one of these providers is configuration, not code. ``base_url`` may use
+``${VAR}`` placeholders (e.g. Cloudflare's account id), filled from the
+environment at call time. Free-only safety:
 - the model name must match the provider's free pattern (e.g. ``:free`` on
   OpenRouter), otherwise the agent is blocked before any call;
 - HTTP 402 and billing messages block the agent for good;
@@ -16,6 +18,7 @@ import time
 import httpx
 
 from jarvis.agents.errors import error_from_status, parse_retry_after
+from jarvis.agents.ratelimit import parse_rate_limit
 from jarvis.core.errors import (
     CostViolationError,
     InvalidResponseError,
@@ -26,6 +29,8 @@ from jarvis.core.errors import (
 from jarvis.core.provider import AIProvider, HealthReport
 from jarvis.core.types import AgentInfo, AIRequest, AIResponse, Health
 
+_PLACEHOLDER = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
 
 class OpenAICompatAgent(AIProvider):
     def __init__(
@@ -35,14 +40,28 @@ class OpenAICompatAgent(AIProvider):
         base_url: str,
         api_key_env: str,
         free_model_pattern: str | None = None,
+        health_check: str = "models",
         timeout: float = 60.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        if health_check not in ("models", "key"):
+            raise ValueError(f"health_check must be 'models' or 'key', not {health_check!r}")
         self.info = info
-        self.base_url = base_url.rstrip("/")
+        self.base_url_template = base_url.rstrip("/")
         self.api_key_env = api_key_env
         self.free_model_pattern = free_model_pattern
+        self.health_check = health_check
         self._client = httpx.AsyncClient(timeout=timeout, transport=transport)
+
+    @property
+    def base_url(self) -> str:
+        def fill(match: re.Match) -> str:
+            value = os.environ.get(match.group(1), "").strip()
+            if not value:
+                raise NotConfiguredError(f"set {match.group(1)} in .env to enable {self.info.name}")
+            return value
+
+        return _PLACEHOLDER.sub(fill, self.base_url_template)
 
     # The key is read on demand so it never sits in a config object or a log.
     def _api_key(self) -> str:
@@ -65,15 +84,19 @@ class OpenAICompatAgent(AIProvider):
         try:
             self._check_free_model()
             headers = self._headers()
+            base_url = self.base_url
         except CostViolationError as exc:
             return HealthReport(Health.BLOCKED, str(exc))
         except NotConfiguredError as exc:
             return HealthReport(Health.UNCONFIGURED, str(exc))
+        if self.health_check == "key":
+            # Provider without a usable /models listing: trust the key until a call fails.
+            return HealthReport(Health.AVAILABLE, "key present (not verified)")
         try:
             # Listing models does not spend generation quota.
-            response = await self._client.get(f"{self.base_url}/models", headers=headers)
+            response = await self._client.get(f"{base_url}/models", headers=headers)
         except httpx.HTTPError as exc:
-            return HealthReport(Health.OFFLINE, f"cannot reach {self.base_url}: {exc}")
+            return HealthReport(Health.OFFLINE, f"cannot reach {self.info.provider}: {exc}")
         if response.status_code in (401, 403):
             return HealthReport(Health.UNCONFIGURED, f"HTTP {response.status_code}: check the key")
         if response.status_code >= 400:
@@ -88,6 +111,7 @@ class OpenAICompatAgent(AIProvider):
 
     async def generate(self, request: AIRequest) -> AIResponse:
         self._check_free_model()
+        base_url, headers = self.base_url, self._headers()
         started = time.perf_counter()
         payload: dict = {
             "model": self.info.model,
@@ -97,7 +121,7 @@ class OpenAICompatAgent(AIProvider):
             payload["max_tokens"] = request.max_output_tokens
         try:
             response = await self._client.post(
-                f"{self.base_url}/chat/completions", json=payload, headers=self._headers()
+                f"{base_url}/chat/completions", json=payload, headers=headers
             )
         except httpx.TimeoutException as exc:
             raise ProviderUnavailableError(f"{self.info.name} timed out") from exc
@@ -123,6 +147,7 @@ class OpenAICompatAgent(AIProvider):
             input_tokens=usage.get("prompt_tokens"),
             output_tokens=usage.get("completion_tokens"),
             latency_ms=(time.perf_counter() - started) * 1000,
+            rate_limit=parse_rate_limit(response.headers),
         )
 
     def _error(self, response: httpx.Response) -> ProviderError:
@@ -133,6 +158,9 @@ class OpenAICompatAgent(AIProvider):
         except ValueError:
             message = response.text[:300]
         retry = parse_retry_after(response.headers.get("retry-after"))
+        if retry is None and response.status_code == 429:
+            quota = parse_rate_limit(response.headers)
+            retry = quota.reset_seconds if quota else None
         return error_from_status(response.status_code, f"{self.info.name}: {message}", retry)
 
     async def close(self) -> None:

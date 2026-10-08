@@ -12,11 +12,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from jarvis.core.types import Capability, CostClass, CostMode, Privacy
+from jarvis.core.types import Capability, CostClass, CostMode, Privacy, TaskType
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = PROJECT_ROOT / "config" / "agents.toml"
 DEFAULT_ENV = PROJECT_ROOT / ".env"
+DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 
 
 class OpenCodeModelConfig(BaseModel):
@@ -25,6 +26,8 @@ class OpenCodeModelConfig(BaseModel):
     priority: int = 50
     privacy: Privacy = Privacy.UNKNOWN
     capabilities: frozenset[Capability] = frozenset({Capability.CHAT})
+    quality: dict[TaskType, float] = Field(default_factory=dict)
+    rpm_limit: int | None = None
 
 
 class OpenCodeConfig(BaseModel):
@@ -44,15 +47,22 @@ class OpenAICompatConfig(BaseModel):
     enabled: bool = True
     cost_class: CostClass = CostClass.FREE_WITH_LIMITS
     free_model_pattern: str | None = None
+    health_check: str = "models"
     daily_limit: int | None = None
+    rpm_limit: int | None = None
+    quota_group: str | None = None
+    context_window: int | None = None
     priority: int = 50
     privacy: Privacy = Privacy.UNKNOWN
     capabilities: frozenset[Capability] = frozenset({Capability.CHAT})
+    quality: dict[TaskType, float] = Field(default_factory=dict)
     allow_paid: bool = False
 
 
 class Settings(BaseModel):
     cost_mode: CostMode = CostMode.FREE_ONLY
+    data_dir: Path = DEFAULT_DATA_DIR
+    health_interval: float = 120.0
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
     openai_compat: list[OpenAICompatConfig] = Field(default_factory=list)
 
@@ -86,4 +96,6 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
     data.pop("cost_mode", None)  # the file cannot change the cost mode
     settings = Settings.model_validate(data)
     settings.cost_mode = cost_mode_from_env()
+    if os.environ.get("JARVIS_DATA_DIR"):
+        settings.data_dir = Path(os.environ["JARVIS_DATA_DIR"])
     return settings

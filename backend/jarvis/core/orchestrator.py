@@ -13,7 +13,7 @@ from jarvis.core.classifier import classify
 from jarvis.core.conversation import Conversation
 from jarvis.core.errors import AllAgentsFailedError, ProviderError
 from jarvis.core.router import Router
-from jarvis.core.types import AIRequest, Attempt, Message, OrchestratorResult
+from jarvis.core.types import AIRequest, Attempt, Message, OrchestratorResult, RankedAgent
 
 SYSTEM_PROMPT = (
     "Você é o JARVIS, um assistente pessoal inteligente, educado e direto. "
@@ -50,7 +50,10 @@ class Orchestrator:
             task=task,
         )
 
-        ranked = self.router.rank(self.manager.candidates(request.required), task)
+        ranked = self.router.rank(self.manager.candidates(request.required), task, request)
+        ranking = [
+            RankedAgent(agent_id=p.id, score=round(self.router.score(p, task), 1)) for p in ranked
+        ]
         attempts: list[Attempt] = []
         for provider in ranked[: self.max_attempts]:
             started = time.perf_counter()
@@ -72,7 +75,9 @@ class Orchestrator:
             self.manager.record_success(provider.id, response)
             attempts.append(Attempt(agent_id=provider.id, ok=True, latency_ms=response.latency_ms))
             conversation.add_assistant(response.text, provider.id)
-            return OrchestratorResult(response=response, task=task, attempts=attempts)
+            return OrchestratorResult(
+                response=response, task=task, attempts=attempts, ranking=ranking
+            )
 
         # Nobody answered: forget the message so a retry does not duplicate it.
         conversation.drop_last_user()

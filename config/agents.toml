@@ -4,15 +4,25 @@
 # This file cannot change it. Agents with cost_class = "paid" stay blocked unless
 # COST_MODE=ALLOW_PAID *and* the agent sets allow_paid = true.
 #
-# priority: 0..100, higher wins. The router also adds a bonus when the agent
-# has the capability for the task (chat, code, math, research, reasoning, vision),
-# and subtracts for recent failures and slow answers.
+# Ranking (see backend/jarvis/core/router.py):
+#   priority      0..100, higher wins
+#   quality       per task (chat, code, math, research), 0..1. Tasks left out use
+#                 the capabilities: 0.6 if the agent has that capability, else 0.2.
+#   capabilities  chat, code, math, reasoning, research, vision
+# Limits:
+#   daily_limit   requests/day (counted locally and persisted in data/jarvis.db)
+#   rpm_limit     requests/minute (respected locally, before the provider says 429)
+#   quota_group   agents that share one provider quota share these counters
+# Quota headers sent by the provider (remaining/reset) always take precedence.
+
+# Seconds between background health checks in `jarvis chat` (no quota spent).
+health_interval = 120
 
 # ---------------------------------------------------------------------------
-# OpenCode (official v2 HTTP server, started privately by JARVIS)
-# Only free OpenCode Zen models are allowed: names ending in "-free" (or
-# big-pickle) whose price is 0 on every tier, with no paid credential set.
-# The free list changes often: run `jarvis status` to see what is offered.
+# OpenCode Zen (free models), through the official client in a locked sandbox.
+# Only names ending in "-free" (or big-pickle) with price 0 on every tier are
+# used. The free list changes often: `jarvis status` shows what is offered now.
+# Models marked "trial use only" by their provider (e.g. Nemotron) are left out.
 # ---------------------------------------------------------------------------
 [opencode]
 enabled = true
@@ -25,6 +35,7 @@ name = "OpenCode · Space Bunny (zero retention)"
 priority = 70
 privacy = "zero_retention"
 capabilities = ["chat", "code", "math", "reasoning", "research"]
+quality = { chat = 0.8, code = 0.8, math = 0.7, research = 0.6 }
 
 [[opencode.models]]
 id = "longcat-2.5-preview-free"
@@ -32,6 +43,7 @@ name = "OpenCode · LongCat 2.5 (zero retention)"
 priority = 65
 privacy = "zero_retention"
 capabilities = ["chat", "code", "reasoning", "research"]
+quality = { chat = 0.8, code = 0.7, math = 0.6, research = 0.7 }
 
 [[opencode.models]]
 id = "big-pickle"
@@ -39,6 +51,21 @@ name = "OpenCode · Big Pickle"
 priority = 55
 privacy = "may_train"
 capabilities = ["chat", "code", "reasoning"]
+quality = { chat = 0.7, code = 0.8 }
+
+[[opencode.models]]
+id = "exo-free"
+name = "OpenCode · Exo"
+priority = 50
+privacy = "may_train"
+capabilities = ["chat", "code", "reasoning"]
+
+[[opencode.models]]
+id = "mimo-v2.6-flash-free"
+name = "OpenCode · MiMo V2.6 Flash"
+priority = 45
+privacy = "may_train"
+capabilities = ["chat", "code"]
 
 # ---------------------------------------------------------------------------
 # OpenAI-compatible providers. Each one stays "unconfigured" until its key is
@@ -56,12 +83,29 @@ model = "openai/gpt-oss-120b"
 api_key_env = "GROQ_API_KEY"
 cost_class = "free_with_limits"
 daily_limit = 1000
+rpm_limit = 30
+context_window = 131072
 priority = 60
 privacy = "unknown"
 capabilities = ["chat", "code", "math", "reasoning"]
+quality = { chat = 0.7, code = 0.8, math = 0.8 }
 
-# OpenRouter: only ":free" models (enforced), 50 req/day without purchases.
-# Never buy credits: an account with zero balance cannot be charged (HTTP 402).
+[[openai_compat]]
+id = "groq:qwen3.8-27b"
+name = "Groq · Qwen 3.8 27B"
+provider = "groq"
+base_url = "https://api.groq.com/openai/v1"
+model = "qwen/qwen3.8-27b"
+api_key_env = "GROQ_API_KEY"
+cost_class = "free_with_limits"
+daily_limit = 1000
+rpm_limit = 30
+priority = 55
+privacy = "unknown"
+capabilities = ["chat", "code", "math", "reasoning"]
+
+# OpenRouter: only ":free" models (enforced), 50 req/day and 20 req/min without
+# purchases. Never buy credits: a zero-balance account cannot be charged (HTTP 402).
 [[openai_compat]]
 id = "openrouter:gemma-4-31b"
 name = "OpenRouter · Gemma 4 31B (free)"
@@ -71,7 +115,61 @@ model = "google/gemma-4-31b-it:free"
 api_key_env = "OPENROUTER_API_KEY"
 cost_class = "free_with_limits"
 free_model_pattern = ":free$"
+quota_group = "openrouter-free"
 daily_limit = 50
+rpm_limit = 20
+context_window = 262144
 priority = 45
 privacy = "may_train"
+capabilities = ["chat", "reasoning", "research"]
+
+[[openai_compat]]
+id = "openrouter:gemma-4-26b"
+name = "OpenRouter · Gemma 4 26B A4B (free)"
+provider = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+model = "google/gemma-4-26b-a4b-it:free"
+api_key_env = "OPENROUTER_API_KEY"
+cost_class = "free_with_limits"
+free_model_pattern = ":free$"
+quota_group = "openrouter-free"  # 50/day and 20/min are per account: shared
+daily_limit = 50
+rpm_limit = 20
+context_window = 262144
+priority = 40
+privacy = "may_train"
 capabilities = ["chat", "reasoning"]
+
+# Mistral "Experiment" (free) plan: phone verification, no card. Inputs may be
+# used for training unless you opt out in the Admin Console. ~1 request/second.
+# Never move to the paid "Scale" plan.
+[[openai_compat]]
+id = "mistral:small"
+name = "Mistral · Small (free plan)"
+provider = "mistral"
+base_url = "https://api.mistral.ai/v1"
+model = "mistral-small-latest"
+api_key_env = "MISTRAL_API_KEY"
+cost_class = "free_with_limits"
+rpm_limit = 60
+priority = 50
+privacy = "may_train"
+capabilities = ["chat", "code", "reasoning"]
+quality = { chat = 0.7 }
+
+# Cloudflare Workers AI, Workers Free plan: 10,000 Neurons/day, reset at 00:00 UTC.
+# Above the free allowance requests FAIL instead of billing (official docs).
+# Small models use fewer Neurons, so more answers fit in the daily allowance.
+[[openai_compat]]
+id = "cloudflare:llama-3.1-8b"
+name = "Cloudflare · Llama 3.1 8B"
+provider = "cloudflare"
+base_url = "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1"
+model = "@cf/meta/llama-3.1-8b-instruct"
+api_key_env = "CLOUDFLARE_API_TOKEN"
+cost_class = "free_with_limits"
+health_check = "key"
+priority = 35
+privacy = "unknown"
+capabilities = ["chat"]
+quality = { chat = 0.5, code = 0.3 }

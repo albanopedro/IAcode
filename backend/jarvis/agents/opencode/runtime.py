@@ -124,6 +124,7 @@ class OpenCodeRuntime:
         self._sandbox = sandbox
         self._server: OpenCodeServer | None = None
         self._free_models: set[str] = set()
+        self._context: dict[str, int] = {}
         self._verified_at: float | None = None
         self._lock = asyncio.Lock()
 
@@ -163,9 +164,19 @@ class OpenCodeRuntime:
             if not agent_is_locked(agent.get("permissions") or []):
                 raise NotConfiguredError("the jarvis agent is not locked (tools could run)")
 
-            self._free_models = {m["id"] for m in await self.server.models() if is_free_model(m)}
+            free = [m for m in await self.server.models() if is_free_model(m)]
+            self._free_models = {m["id"] for m in free}
+            self._context = {
+                m["id"]: int(m["limit"]["context"])
+                for m in free
+                if isinstance(m.get("limit"), dict) and m["limit"].get("context")
+            }
             self._verified_at = time.monotonic()
             return self._free_models
+
+    def context_window(self, model_id: str) -> int | None:
+        """Context size from the OpenCode catalog (known after the first verify)."""
+        return self._context.get(model_id)
 
     async def run(self, model_id: str, prompt: str, time_limit: float) -> RunResult:
         free = await self.verify()

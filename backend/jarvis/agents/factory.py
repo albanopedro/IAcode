@@ -24,6 +24,8 @@ def build_agents(settings: Settings) -> list[AIProvider]:
                     priority=model.priority,
                     capabilities=model.capabilities,
                     privacy=model.privacy,
+                    quality=model.quality,
+                    rpm_limit=model.rpm_limit,
                     timeout=settings.opencode.timeout,
                 )
             )
@@ -41,6 +43,10 @@ def build_agents(settings: Settings) -> list[AIProvider]:
             priority=cfg.priority,
             privacy=cfg.privacy,
             daily_limit=cfg.daily_limit,
+            rpm_limit=cfg.rpm_limit,
+            quota_group=cfg.quota_group,
+            context_window=cfg.context_window,
+            quality=cfg.quality,
             allow_paid=cfg.allow_paid,
         )
         agents.append(
@@ -49,6 +55,7 @@ def build_agents(settings: Settings) -> list[AIProvider]:
                 base_url=cfg.base_url,
                 api_key_env=cfg.api_key_env,
                 free_model_pattern=cfg.free_model_pattern,
+                health_check=cfg.health_check,
             )
         )
     return agents

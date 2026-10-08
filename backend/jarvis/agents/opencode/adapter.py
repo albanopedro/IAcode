@@ -20,6 +20,7 @@ from jarvis.core.types import (
     Health,
     Message,
     Privacy,
+    TaskType,
 )
 
 
@@ -59,6 +60,8 @@ class OpenCodeAgent(AIProvider):
         priority: int = 50,
         capabilities: frozenset[Capability] = frozenset({Capability.CHAT}),
         privacy: Privacy = Privacy.UNKNOWN,
+        quality: dict[TaskType, float] | None = None,
+        rpm_limit: int | None = None,
         timeout: float = 120.0,
     ) -> None:
         self.runtime = runtime
@@ -73,7 +76,13 @@ class OpenCodeAgent(AIProvider):
             capabilities=capabilities,
             priority=priority,
             privacy=privacy,
+            quality=quality or {},
+            rpm_limit=rpm_limit,
         )
+
+    @property
+    def context_window(self) -> int | None:
+        return self.runtime.context_window(self.model_id) or self.info.context_window
 
     async def check_health(self) -> HealthReport:
         try:

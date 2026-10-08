@@ -105,3 +105,68 @@ async def test_health_checks_the_model_list(key):
     assert (await make().check_health()).health is Health.OFFLINE
     respx.get(f"{BASE}/models").respond(401, json={})
     assert (await make().check_health()).health is Health.UNCONFIGURED
+
+
+@respx.mock
+async def test_quota_headers_are_reported(key):
+    respx.post(f"{BASE}/chat/completions").respond(
+        200,
+        headers={
+            "x-ratelimit-limit-requests": "1000",
+            "x-ratelimit-remaining-requests": "999",
+            "x-ratelimit-reset-requests": "1m",
+        },
+        json={"choices": [{"message": {"content": "ok"}}]},
+    )
+    response = await make().generate(REQUEST)
+    assert (response.rate_limit.remaining, response.rate_limit.reset_seconds) == (999, 60)
+
+
+@respx.mock
+async def test_429_without_retry_after_uses_the_quota_reset(key):
+    respx.post(f"{BASE}/chat/completions").respond(
+        429,
+        headers={"x-ratelimit-remaining-requests": "0", "x-ratelimit-reset-requests": "2m"},
+        json={"error": {"message": "limit"}},
+    )
+    with pytest.raises(RateLimitError) as info:
+        await make().generate(REQUEST)
+    assert info.value.retry_after == 120
+
+
+def cloudflare_like():
+    info = AgentInfo(
+        id="cf:1",
+        name="CF",
+        provider="cloudflare",
+        model="@cf/meta/llama-3.1-8b-instruct",
+        cost_class=CostClass.FREE_WITH_LIMITS,
+    )
+    return OpenAICompatAgent(
+        info,
+        base_url="https://cf.test/accounts/${JARVIS_TEST_ACCOUNT}/ai/v1",
+        api_key_env=KEY_ENV,
+        health_check="key",
+    )
+
+
+@respx.mock
+async def test_base_url_placeholders_come_from_the_environment(key, monkeypatch):
+    monkeypatch.delenv("JARVIS_TEST_ACCOUNT", raising=False)
+    agent = cloudflare_like()
+    assert (await agent.check_health()).health is Health.UNCONFIGURED
+    with pytest.raises(NotConfiguredError, match="JARVIS_TEST_ACCOUNT"):
+        await agent.generate(REQUEST)
+
+    monkeypatch.setenv("JARVIS_TEST_ACCOUNT", "acc123")
+    route = respx.post("https://cf.test/accounts/acc123/ai/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "oi"}}]}
+    )
+    assert (await agent.check_health()).health is Health.AVAILABLE  # key-only: no request
+    assert (await agent.generate(REQUEST)).text == "oi"
+    assert route.called
+
+
+def test_unknown_health_check_mode_is_rejected():
+    with pytest.raises(ValueError):
+        OpenAICompatAgent(make().info, base_url=BASE, api_key_env=KEY_ENV, health_check="ping")

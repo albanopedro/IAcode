@@ -9,7 +9,7 @@ from jarvis.core.types import CostClass, CostMode
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for key in ("COST_MODE", "JARVIS_CONFIG", "JARVIS_TEST_KEY"):
+    for key in ("COST_MODE", "JARVIS_CONFIG", "JARVIS_TEST_KEY", "JARVIS_DATA_DIR"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -61,3 +61,20 @@ def test_disabled_agents_are_not_built(tmp_path):
         'model = "m"\napi_key_env = "X_KEY"\nenabled = false\n'
     )
     assert build_agents(load_settings(config, tmp_path / "x.env")) == []
+
+
+def test_project_config_declares_limits_and_groups(tmp_path):
+    settings = load_settings(DEFAULT_CONFIG, tmp_path / "x.env")
+    agents = {a.id: a for a in build_agents(settings)}
+    openrouter = [a for a in agents.values() if a.info.provider == "openrouter"]
+    assert len(openrouter) >= 2
+    assert {a.info.quota_group for a in openrouter} == {"openrouter-free"}
+    assert all(a.info.rpm_limit for a in openrouter)
+    assert all(a.free_model_pattern == ":free$" for a in openrouter)
+    assert agents["cloudflare:llama-3.1-8b"].health_check == "key"
+    assert settings.health_interval > 0
+
+
+def test_data_dir_can_be_set_from_the_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("JARVIS_DATA_DIR", str(tmp_path / "data"))
+    assert load_settings(DEFAULT_CONFIG, tmp_path / "x.env").data_dir == tmp_path / "data"

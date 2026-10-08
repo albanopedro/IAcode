@@ -59,10 +59,37 @@ class OpenAICompatConfig(BaseModel):
     allow_paid: bool = False
 
 
+class VoiceConfig(BaseModel):
+    """Local, free voice. Models are downloaded once into ``<data_dir>/models``."""
+
+    language: str = "pt"
+    stt_model: str = "large-v3-turbo-q5_0"
+    stt_threads: int = 4
+    # A natural sentence works better than a word list (tested: "Docker" was heard
+    # as "do Querer" without it).
+    stt_prompt: str = "Olá, JARVIS. Falamos de Docker, Python, GitHub, Linux, macOS e programação."
+    tts_engine: str = "say"  # "say" (macOS, built in) or "piper" (open source)
+    say_voice: str = "Luciana"
+    say_rate: int | None = None
+    piper_voice: str = "pt_BR-faber-medium"
+    silence_ms: int = 900
+    no_speech_timeout: float = 8.0
+    max_utterance_seconds: float = 30.0
+    stop_phrases: list[str] = Field(
+        default_factory=lambda: [
+            "tchau jarvis",
+            "encerrar conversa",
+            "pode parar jarvis",
+            "desligar jarvis",
+        ]
+    )
+
+
 class Settings(BaseModel):
     cost_mode: CostMode = CostMode.FREE_ONLY
     data_dir: Path = DEFAULT_DATA_DIR
     health_interval: float = 120.0
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
     openai_compat: list[OpenAICompatConfig] = Field(default_factory=list)
 

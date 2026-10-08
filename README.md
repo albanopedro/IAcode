@@ -13,8 +13,9 @@ Assistente pessoal multimodelo inspirado no JARVIS. Conversa com vários agentes
 |---|---|
 | 1. Pesquisa e arquitetura | ✅ |
 | 2. Core: orchestrator, adapters, fallback, status | ✅ |
-| 3. Multi-agent: limites, ranking, health checks, persistência | ✅ (aguardando revisão) |
-| 4–9. Voz, interface, memória, tools, IA local, polimento | ⏳ |
+| 3. Multi-agent: limites, ranking, health checks, persistência | ✅ |
+| 4. Voz: STT, TTS, streaming por frase, conversa contínua | ✅ (aguardando revisão) |
+| 5–9. Interface, memória, tools, IA local, polimento | ⏳ |
 
 ## Como rodar (backend, texto)
 
@@ -30,6 +31,32 @@ python3 -m venv .venv
 
 Testes: `.venv/bin/pytest`. O teste real e gratuito com o OpenCode é opcional:
 `JARVIS_LIVE_TESTS=1 .venv/bin/pytest -m live`.
+
+### Voz (local e gratuita)
+
+```bash
+.venv/bin/pip install -e ".[dev,voice]"
+.venv/bin/python -m jarvis voice              # conversa por voz; diga "tchau JARVIS" para sair
+.venv/bin/python -m jarvis voice --tts piper  # voz de código aberto em vez do say do macOS
+.venv/bin/python -m jarvis speak "Olá, eu sou o JARVIS."
+.venv/bin/python -m jarvis transcribe gravacao.wav
+```
+
+- **Speech-to-Text:** whisper.cpp (`pywhispercpp`, licença MIT, acelerado por Metal),
+  modelo `large-v3-turbo-q5_0`.
+  - São cerca de 550 MB, baixados uma vez do repositório oficial para `data/models/`.
+  - Cada fala leva de 1,3 a 1,7 s no M4.
+- **Text-to-Speech:**
+  - `say` do macOS (voz Luciana, já vem instalado);
+  - ou **Piper** (código aberto, voz `pt_BR-faber-medium`, cerca de 60 MB, de
+    0,1 a 0,4 s por frase).
+- **Fluxo:** microfone → VAD (detecta início e fim da fala) → Whisper → orquestrador
+  → resposta curta → voz.
+  - A resposta é dividida em frases, e a próxima é sintetizada enquanto a atual toca.
+  - O microfone fica desligado enquanto o JARVIS fala (half-duplex).
+  - O contexto é o mesmo do modo texto.
+- Na primeira vez, o macOS pede permissão de microfone para o app do terminal.
+- Tudo é configurável na seção `[voice]` do `config/agents.toml`.
 
 ### Agentes online opcionais
 

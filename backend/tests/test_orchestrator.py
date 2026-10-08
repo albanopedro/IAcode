@@ -153,3 +153,13 @@ async def test_router_penalizes_failures_and_prefers_privacy():
     manager.state("private").consecutive_failures = 1
     ranked = router.rank(manager.providers, TaskType.CHAT)
     assert ranked[0].id == "plain"
+
+
+async def test_style_is_appended_to_the_system_prompt_only_for_that_call():
+    agent = FakeAgent("a", ["um", "dois"])
+    _, orch = setup(agent)
+    conversation = Conversation()
+    await orch.ask(conversation, "oi", style="Seja breve.")
+    await orch.ask(conversation, "de novo")
+    assert agent.calls[0].messages[0].content.endswith("Seja breve.")
+    assert "Seja breve." not in agent.calls[1].messages[0].content

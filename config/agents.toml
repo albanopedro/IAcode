@@ -173,3 +173,20 @@ priority = 35
 privacy = "unknown"
 capabilities = ["chat"]
 quality = { chat = 0.5, code = 0.3 }
+
+# ---------------------------------------------------------------------------
+# Voice (local and free). Models are downloaded once into data/models.
+#   STT: whisper.cpp; "large-v3-turbo-q5_0" (~550 MB) is accurate in Portuguese.
+#        Smaller/faster: "small-q5_1" (~180 MB), "base-q5_1" (~60 MB).
+#   TTS: "say" (macOS built-in, zero setup) or "piper" (open source, ~60 MB voice).
+#   `say -v '?' | grep pt_BR` lists the macOS Portuguese voices.
+# ---------------------------------------------------------------------------
+[voice]
+language = "pt"
+stt_model = "large-v3-turbo-q5_0"
+tts_engine = "say"
+say_voice = "Luciana"
+piper_voice = "pt_BR-faber-medium"
+silence_ms = 900           # quiet time that ends your turn
+no_speech_timeout = 8      # seconds of waiting before listening again
+stop_phrases = ["tchau jarvis", "encerrar conversa", "pode parar jarvis", "desligar jarvis"]  # "xau" also works

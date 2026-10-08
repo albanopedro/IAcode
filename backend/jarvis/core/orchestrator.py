@@ -37,7 +37,10 @@ class Orchestrator:
         self.system_prompt = system_prompt
         self.max_attempts = max_attempts
 
-    async def ask(self, conversation: Conversation, text: str) -> OrchestratorResult:
+    async def ask(
+        self, conversation: Conversation, text: str, *, style: str | None = None
+    ) -> OrchestratorResult:
+        """Answer ``text``. ``style`` adds instructions for this channel (e.g. voice)."""
         text = text.strip()
         if not text:
             raise ValueError("empty message")
@@ -46,7 +49,10 @@ class Orchestrator:
         conversation.add_user(text)
         task = classify(text)
         request = AIRequest(
-            messages=[Message(role="system", content=self.system_prompt), *conversation.window()],
+            messages=[
+                Message(role="system", content=f"{self.system_prompt}\n\n{style}".strip()),
+                *conversation.window(),
+            ],
             task=task,
         )
 

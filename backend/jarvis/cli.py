@@ -4,6 +4,9 @@ python -m jarvis status [--json]   # health of every agent (spends no quota)
 python -m jarvis ask "..."         # one question
 python -m jarvis chat              # conversation; /status, /limpar, /sair
 python -m jarvis unblock <id>      # lift a persisted cost/billing block
+python -m jarvis voice             # talk by voice (needs the [voice] extra)
+python -m jarvis speak "..."       # test the voice
+python -m jarvis transcribe a.wav  # test speech-to-text
 """
 
 from __future__ import annotations
@@ -182,7 +185,27 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("chat", help="start a conversation")
     unblock = sub.add_parser("unblock", help="lift a persisted cost/billing block")
     unblock.add_argument("agent_id")
+    voice = sub.add_parser("voice", help="talk to JARVIS (microphone + speaker)")
+    voice.add_argument("--tts", choices=["say", "piper"], help="override the configured voice")
+    voice.add_argument("--once", action="store_true", help="answer one question and stop")
+    speak = sub.add_parser("speak", help="say a text with the configured voice")
+    speak.add_argument("text", nargs="+")
+    speak.add_argument("--tts", choices=["say", "piper"])
+    transcribe = sub.add_parser("transcribe", help="transcribe a 16-bit WAV file")
+    transcribe.add_argument("path")
     args = parser.parse_args(argv)
+
+    if args.command in ("voice", "speak", "transcribe"):
+        try:
+            from jarvis.voice import cli as voice_cli
+        except ImportError as exc:
+            print(f"voz indisponível ({exc}). Instale com: pip install -e '.[voice]'")
+            return 2
+        if args.command == "voice":
+            return asyncio.run(voice_cli.cmd_voice(args.tts, args.once))
+        if args.command == "speak":
+            return asyncio.run(voice_cli.cmd_speak(" ".join(args.text), args.tts))
+        return asyncio.run(voice_cli.cmd_transcribe(args.path))
 
     if args.command == "status":
         return asyncio.run(cmd_status(args.json))

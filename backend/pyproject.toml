@@ -9,6 +9,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+voice = [
+    "numpy==2.5.3",
+    "sounddevice==0.5.6",
+    "pywhispercpp==1.5.1",
+    "piper-tts==1.8.0",
+]
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",

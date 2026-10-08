@@ -40,10 +40,10 @@ def print_event(phase: Phase, data: Any) -> None:
 
 
 async def cmd_voice(tts_engine: str | None, once: bool) -> int:
-    from jarvis.cli import build
+    from jarvis.cli import build, open_conversation, shutdown
 
     settings = load_settings()
-    manager, orchestrator, interval = build()
+    manager, assistant, interval = build()
     stt, tts = build_stt(settings), build_tts(settings, tts_engine)
     print(f"Carregando voz: {stt.name} + {tts.name}…", flush=True)
     started = time.perf_counter()
@@ -51,11 +51,12 @@ async def cmd_voice(tts_engine: str | None, once: bool) -> int:
     print(f"Pronto em {time.perf_counter() - started:.1f}s.\n")
 
     session = VoiceSession(
-        orchestrator,
+        assistant,  # type: ignore[arg-type]  # same ask() as the orchestrator, plus memory
         stt,
         tts,
         Microphone(),
         Speaker(),
+        conversation=open_conversation(assistant),
         vad_config=vad_config(settings.voice),
         stop_phrases=tuple(settings.voice.stop_phrases),
         on_event=print_event,
@@ -69,7 +70,7 @@ async def cmd_voice(tts_engine: str | None, once: bool) -> int:
     finally:
         session.interrupt()
         await monitor.stop()
-        await manager.close()
+        await shutdown(manager, assistant)
     return 0
 
 

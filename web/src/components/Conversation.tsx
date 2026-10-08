@@ -23,6 +23,7 @@ export function Conversation({ entries }: { entries: ChatEntry[] }) {
       <div className="conversation empty">
         <p>Fale com o JARVIS pelo microfone ou escreva abaixo.</p>
         <p className="hint">Diga “tchau JARVIS” para encerrar a conversa por voz.</p>
+        <p className="hint">Para eu guardar algo: “JARVIS, lembre que…”.</p>
       </div>
     );
   }
@@ -33,8 +34,11 @@ export function Conversation({ entries }: { entries: ChatEntry[] }) {
         <article key={entry.id} className={`entry entry-${entry.role}`}>
           <header>
             {entry.role === "user" ? "Você" : entry.role === "jarvis" ? "JARVIS" : "Aviso"}
+            {entry.agentId === "jarvis:memoria" && <span className="tag memory">🧠 memória</span>}
             {entry.mode === "voice" && <span className="tag">🎙 voz</span>}
-            {entry.agentId && <span className="tag agent">{shortAgent(entry.agentId)}</span>}
+            {entry.agentId && entry.agentId !== "jarvis:memoria" && (
+              <span className="tag agent">{shortAgent(entry.agentId)}</span>
+            )}
             {entry.task && <span className="tag">{TASK_LABELS[entry.task] ?? entry.task}</span>}
             {entry.latencyMs !== undefined && (
               <span className="tag muted">{(entry.latencyMs / 1000).toFixed(1)}s</span>

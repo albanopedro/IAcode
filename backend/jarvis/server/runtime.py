@@ -1,4 +1,4 @@
-"""Everything the server shares between connections: agents, orchestrator, voice."""
+"""Everything the server shares between connections: agents, assistant, memory, voice."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from jarvis.core.cost_guard import CostGuard
 from jarvis.core.health_monitor import HealthMonitor
 from jarvis.core.orchestrator import Orchestrator
 from jarvis.core.usage_store import UsageStore
+from jarvis.memory.assistant import Assistant
+from jarvis.memory.factory import build_assistant
 
 
 @dataclass
@@ -25,13 +27,13 @@ class JarvisRuntime:
         self,
         settings: Settings,
         manager: AgentManager,
-        orchestrator: Orchestrator | None = None,
+        assistant: Assistant | None = None,
         *,
         voice: VoiceEngines | None = None,
     ) -> None:
         self.settings = settings
         self.manager = manager
-        self.orchestrator = orchestrator or Orchestrator(manager)
+        self.assistant = assistant or Assistant(Orchestrator(manager))
         self.monitor = HealthMonitor(manager, settings.health_interval)
         self._voice = voice
         self._voice_lock = asyncio.Lock()
@@ -42,14 +44,21 @@ class JarvisRuntime:
         settings = settings or load_settings()
         store = UsageStore(settings.data_dir / "jarvis.db")
         manager = AgentManager(build_agents(settings), CostGuard(settings.cost_mode), store=store)
-        return cls(settings, manager)
+        return cls(settings, manager, build_assistant(settings, manager))
+
+    @property
+    def memory(self):
+        return self.assistant.memory
 
     async def start(self) -> None:
         self.monitor.start()
 
     async def stop(self) -> None:
         await self.monitor.stop()
+        await self.assistant.wait_background()
         await self.manager.close()
+        if self.memory is not None:
+            self.memory.close()
 
     # -- voice (loaded on first use: the models take a few seconds) -----------------
 

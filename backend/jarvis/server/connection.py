@@ -5,12 +5,18 @@ Client → server (JSON text messages, plus binary microphone audio):
     {"type": "voice_start", "tts": "say" | "piper"}    start the continuous voice loop
     {"type": "voice_stop"}                             stop listening
     {"type": "interrupt"}                              stop JARVIS talking
-    {"type": "clear"}                                  forget the conversation
+    {"type": "clear"} / {"type": "new_conversation"}   start a new conversation
+    {"type": "open_conversation", "id": "..."}         reopen a saved conversation
+    {"type": "delete_conversation", "id": "..."}       delete a saved conversation
+    {"type": "list_conversations"}                     saved conversations
+    {"type": "list_facts"} / {"type": "forget_fact", "id": 1}
+    {"type": "clear_facts", "confirm": true}           forget every long-term fact
     {"type": "status"}                                 ask for the agents' status
     <binary> PCM16 mono 16 kHz frames while the voice loop runs
 
 Server → client (JSON), plus binary WAV messages with JARVIS's voice:
     hello · state · transcript · answer · agents · stop_audio · cleared · error
+    history (the open conversation) · conversations · facts
 """
 
 from __future__ import annotations
@@ -57,6 +63,24 @@ def agents_event(runtime: JarvisRuntime) -> dict[str, Any]:
     }
 
 
+def history_event(conversation: Conversation) -> dict[str, Any]:
+    return {
+        "type": "history",
+        "conversation_id": conversation.id,
+        "title": conversation.title,
+        "has_summary": bool(conversation.summary),
+        "messages": [
+            {
+                "role": turn.message.role,
+                "text": turn.message.content,
+                "agent_id": turn.agent_id,
+                "created_at": turn.created_at,
+            }
+            for turn in conversation.turns
+        ],
+    }
+
+
 class _LockedOrchestrator:
     """Text and voice share one conversation: never answer two messages at once."""
 
@@ -73,10 +97,16 @@ class Connection:
     def __init__(self, websocket: WebSocket, runtime: JarvisRuntime) -> None:
         self.ws = websocket
         self.runtime = runtime
-        self.conversation = Conversation()
+        memory = runtime.memory
+        self.conversation: Conversation = (
+            (memory.latest_conversation() or memory.new_conversation())
+            if memory
+            else Conversation()
+        )
+        self.voice_session: VoiceSession | None = None
         self.source = QueueAudioSource()
         self.sink = WebSocketSink(self._send_audio)
-        self.orchestrator = _LockedOrchestrator(runtime.orchestrator, asyncio.Lock())
+        self.orchestrator = _LockedOrchestrator(runtime.assistant, asyncio.Lock())
         self.outbox: asyncio.Queue[dict | bytes] = asyncio.Queue()
         self.voice_task: asyncio.Task | None = None
         self.tasks: set[asyncio.Task] = set()
@@ -113,6 +143,8 @@ class Connection:
             }
         )
         self.emit(agents_event(self.runtime))
+        self.emit(history_event(self.conversation))
+        self._emit_memory()
         self.state("idle")
         try:
             while True:
@@ -168,13 +200,87 @@ class Connection:
         elif kind == "interrupt":
             self.sink.stop()
             self.emit({"type": "stop_audio"})
-        elif kind == "clear":
-            self.conversation.clear()
+        elif kind in ("clear", "new_conversation"):
+            memory = self.runtime.memory
+            self._switch(memory.new_conversation() if memory else Conversation())
             self.emit({"type": "cleared"})
+        elif kind == "open_conversation":
+            memory = self.runtime.memory
+            found = memory.load_conversation(str(message.get("id"))) if memory else None
+            if found is None:
+                self.emit({"type": "error", "message": "conversa não encontrada"})
+                return
+            self._switch(found)
+        elif kind == "delete_conversation":
+            memory = self.runtime.memory
+            target = str(message.get("id"))
+            if memory and memory.delete_conversation(target):
+                if target == self.conversation.id:
+                    self._switch(memory.new_conversation())
+                self._emit_memory()
+        elif kind == "list_conversations" or kind == "list_facts":
+            self._emit_memory()
+        elif kind == "forget_fact":
+            memory = self.runtime.memory
+            fact_id = message.get("id")
+            if memory and isinstance(fact_id, int) and memory.delete_fact(fact_id):
+                self._emit_memory()
+            else:
+                self.emit({"type": "error", "message": "lembrança não encontrada"})
+        elif kind == "clear_facts":
+            memory = self.runtime.memory
+            if memory and message.get("confirm") is True:
+                memory.delete_all_facts()
+                self._emit_memory()
         elif kind == "status":
             self.emit(agents_event(self.runtime))
         else:
             self.emit({"type": "error", "message": f"tipo desconhecido: {kind}"})
+
+    # -- memory -------------------------------------------------------------------
+
+    def _switch(self, conversation: Conversation) -> None:
+        self.conversation = conversation
+        if self.voice_session is not None:
+            self.voice_session.conversation = conversation
+        self.emit(history_event(conversation))
+        self._emit_memory()
+
+    def _emit_memory(self) -> None:
+        memory = self.runtime.memory
+        if memory is None:
+            self.emit({"type": "facts", "enabled": False, "facts": []})
+            self.emit({"type": "conversations", "conversations": []})
+            return
+        self.emit(
+            {
+                "type": "facts",
+                "enabled": True,
+                "facts": [
+                    {"id": f.id, "text": f.text, "created_at": f.created_at} for f in memory.facts()
+                ],
+            }
+        )
+        self.emit(
+            {
+                "type": "conversations",
+                "current": self.conversation.id,
+                "conversations": [
+                    {
+                        "id": c.id,
+                        "title": c.title,
+                        "updated_at": c.updated_at,
+                        "messages": c.messages,
+                    }
+                    for c in memory.list_conversations()
+                ],
+            }
+        )
+
+    def _after_answer(self, result: OrchestratorResult) -> None:
+        self.emit(agents_event(self.runtime))
+        if self.runtime.memory is not None:
+            self._emit_memory()  # new title / new fact
 
     # -- text ---------------------------------------------------------------------
 
@@ -193,7 +299,7 @@ class Connection:
             self._settle()
             return
         self.emit(answer_event(result, "text"))
-        self.emit(agents_event(self.runtime))
+        self._after_answer(result)
         if speak:
             await self._speak(result.response.text)
         self._settle()
@@ -237,10 +343,12 @@ class Connection:
             stop_phrases=tuple(voice.stop_phrases),
             on_event=self._on_voice_event,
         )
+        self.voice_session = session
         self.emit({"type": "voice", "active": True, "stt": stt.name, "tts": tts.name})
         try:
             await session.run()
         finally:
+            self.voice_session = None
             self.emit({"type": "voice", "active": False})
             self.state("idle")
 
@@ -254,7 +362,7 @@ class Connection:
             self.state("thinking")
         elif phase is Phase.ANSWER:
             self.emit(answer_event(data, "voice"))
-            self.emit(agents_event(self.runtime))
+            self._after_answer(data)
         elif phase is Phase.SPEAKING:
             self.state("speaking")
         elif phase is Phase.ERROR:

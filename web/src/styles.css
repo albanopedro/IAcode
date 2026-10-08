@@ -313,20 +313,22 @@ button.secondary {
   border-radius: 12px;
 }
 
-.composer-actions {
+
+.side {
+  grid-area: agents;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 14px;
+  align-self: start;
+  min-width: 0;
 }
 
 .agents {
-  grid-area: agents;
   padding: 14px;
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius);
-  align-self: start;
-  max-height: calc(100vh - 110px);
+  max-height: calc(70vh - 60px);
   overflow-y: auto;
 }
 
@@ -457,4 +459,118 @@ button.secondary {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+.history-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.history-bar select {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.history-bar button {
+  padding: 7px 12px;
+}
+
+.summary-tag {
+  font-size: 11px;
+  color: var(--warn);
+  border: 1px solid rgba(255, 181, 71, 0.4);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.memory {
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+}
+
+.memory header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.memory h2 {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.memory ul {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.memory li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  overflow-wrap: anywhere;
+}
+
+.memory .hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+
+.memory .hint.small {
+  font-size: 11px;
+}
+
+button.icon {
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+button.icon:hover:not(:disabled) {
+  color: var(--danger);
+  background: transparent;
+}
+
+button.link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+button.link.danger {
+  color: var(--danger);
+}
+
+button.link:hover:not(:disabled) {
+  background: transparent;
+}
+
+.tag.memory {
+  background: rgba(181, 140, 255, 0.14);
+  color: #c9b0ff;
 }

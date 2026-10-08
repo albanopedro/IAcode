@@ -190,3 +190,18 @@ piper_voice = "pt_BR-faber-medium"
 silence_ms = 900           # quiet time that ends your turn
 no_speech_timeout = 8      # seconds of waiting before listening again
 stop_phrases = ["tchau jarvis", "encerrar conversa", "pode parar jarvis", "desligar jarvis"]  # "xau" also works
+
+# ---------------------------------------------------------------------------
+# Memory (data/memory.db, local only)
+#   History: every conversation is saved and can be reopened.
+#   Short-term: the last `window` messages go to the agent; older ones become a
+#               summary (one free agent call per 10 messages that leave the window).
+#   Long-term: facts you ask JARVIS to remember ("JARVIS, lembre que ...").
+#              share_facts_with = "private" sends them only to local and
+#              zero-retention agents; "all" sends them to every agent.
+# ---------------------------------------------------------------------------
+[memory]
+enabled = true
+share_facts_with = "private"
+summarize = true
+window = 20

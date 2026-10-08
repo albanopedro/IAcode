@@ -15,8 +15,9 @@ Assistente pessoal multimodelo inspirado no JARVIS. Conversa com vários agentes
 | 2. Core: orchestrator, adapters, fallback, status | ✅ |
 | 3. Multi-agent: limites, ranking, health checks, persistência | ✅ |
 | 4. Voz: STT, TTS, streaming por frase, conversa contínua | ✅ |
-| 5. Interface web: orb, estados, voz no navegador, status dos agentes | ✅ (aguardando revisão) |
-| 6–9. Memória, tools, IA local, polimento | ⏳ |
+| 5. Interface web: orb, estados, voz no navegador, status dos agentes | ✅ |
+| 6. Memória: histórico, contexto resumido, lembranças de longo prazo | ✅ (aguardando revisão) |
+| 7–9. Tools, IA local, polimento | ⏳ |
 
 ## Como rodar (backend, texto)
 
@@ -58,6 +59,30 @@ dentro de `web/`, e abra http://127.0.0.1:5300 (o Vite repassa `/api` e `/ws`).
     outro site aberto no navegador não consegue usar o JARVIS;
   - nenhuma chave vai para o navegador;
   - mensagens têm tamanho limitado.
+
+### Memória (Fase 6)
+
+Tudo fica num arquivo local, `data/memory.db` (SQLite). Nada vai para a nuvem, a não
+ser como contexto para o agente que responde.
+
+- **Histórico:** toda conversa é salva. Recarregar a página continua a última conversa;
+  "＋ Nova" começa outra, e as antigas podem ser reabertas ou apagadas.
+  - CLI: `jarvis chat --continue`, `jarvis history list | show <id> | clear`.
+- **Curto prazo:** só as últimas 20 mensagens vão para o agente.
+  - As mais antigas viram um **resumo**: 1 chamada grátis a cada 10 mensagens que saem
+    da janela.
+  - O prompt do resumo manda tratar a conversa como dados, não como instruções.
+- **Longo prazo:** fatos que **você** pede para guardar. O JARVIS nunca decide sozinho
+  lembrar algo.
+  - Exemplos: "JARVIS, lembre que eu prefiro respostas curtas", "Esqueça que…",
+    "O que você sabe sobre mim?".
+  - Esses comandos rodam **localmente**, sem gastar nenhuma chamada.
+  - "Esqueça tudo" não funciona por voz nem por texto (um erro de transcrição não pode
+    apagar tudo). Use o botão "apagar tudo", que pede confirmação, ou
+    `jarvis memory clear`, que pede "SIM".
+  - CLI: `jarvis memory list | add <texto> | forget <id> | clear`.
+- **Privacidade:** por padrão (`share_facts_with = "private"`), as lembranças só vão
+  para agentes **locais ou de retenção zero**. Os outros agentes respondem sem elas.
 
 ### Voz (local e gratuita)
 

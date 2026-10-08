@@ -85,11 +85,23 @@ class VoiceConfig(BaseModel):
     )
 
 
+class MemoryConfig(BaseModel):
+    """Conversation history and long-term facts, stored in ``<data_dir>/memory.db``."""
+
+    enabled: bool = True
+    # Who receives your long-term facts as context: "private" = only local and
+    # zero-retention agents (the others answer without them); "all" = every agent.
+    share_facts_with: str = "private"
+    summarize: bool = True  # fold old messages into a summary (one free call per batch)
+    window: int = 20  # recent messages sent to the agent
+
+
 class Settings(BaseModel):
     cost_mode: CostMode = CostMode.FREE_ONLY
     data_dir: Path = DEFAULT_DATA_DIR
     health_interval: float = 120.0
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
     openai_compat: list[OpenAICompatConfig] = Field(default_factory=list)
 

@@ -25,9 +25,10 @@ from jarvis.core.conversation import Conversation
 from jarvis.core.cost_guard import CostGuard
 from jarvis.core.errors import AllAgentsFailedError
 from jarvis.core.health_monitor import HealthMonitor
-from jarvis.core.orchestrator import Orchestrator
 from jarvis.core.types import AgentStatus, Health, OrchestratorResult
 from jarvis.core.usage_store import UsageStore
+from jarvis.memory.assistant import Assistant
+from jarvis.memory.factory import build_assistant
 
 ICONS = {
     Health.AVAILABLE: "🟢",
@@ -39,11 +40,27 @@ ICONS = {
 }
 
 
-def build() -> tuple[AgentManager, Orchestrator, float]:
+def build() -> tuple[AgentManager, Assistant, float]:
     settings = load_settings()
     store = UsageStore(settings.data_dir / "jarvis.db")
     manager = AgentManager(build_agents(settings), CostGuard(settings.cost_mode), store=store)
-    return manager, Orchestrator(manager), settings.health_interval
+    return manager, build_assistant(settings, manager), settings.health_interval
+
+
+def open_conversation(assistant: Assistant, resume: bool = False) -> Conversation:
+    """A saved conversation when memory is on (the last one with ``resume``)."""
+    if assistant.memory is None:
+        return Conversation()
+    if resume and (latest := assistant.memory.latest_conversation()) is not None:
+        return latest
+    return assistant.memory.new_conversation()
+
+
+async def shutdown(manager: AgentManager, assistant: Assistant) -> None:
+    await assistant.wait_background()  # let a pending summary finish
+    await manager.close()
+    if assistant.memory is not None:
+        assistant.memory.close()
 
 
 def format_status(status: AgentStatus) -> str:
@@ -129,23 +146,25 @@ async def cmd_unblock(agent_id: str) -> int:
 
 
 async def cmd_ask(question: str) -> int:
-    manager, orchestrator, _ = build()
+    manager, assistant, _ = build()
     try:
-        result = await orchestrator.ask(Conversation(), question)
+        result = await assistant.ask(open_conversation(assistant), question)
         print_result(result)
         return 0
     except AllAgentsFailedError as exc:
         print_failure(exc)
         return 1
     finally:
-        await manager.close()
+        await shutdown(manager, assistant)
 
 
-async def cmd_chat() -> int:
-    manager, orchestrator, interval = build()
-    conversation = Conversation()
+async def cmd_chat(resume: bool = False) -> int:
+    manager, assistant, interval = build()
+    conversation = open_conversation(assistant, resume)
     monitor = HealthMonitor(manager, interval)
     monitor.start()
+    if conversation.turns:
+        print(f"Continuando: {conversation.title} ({len(conversation.turns)} mensagens)")
     print("JARVIS pronto. Comandos: /status, /limpar, /sair\n")
     try:
         while True:
@@ -163,17 +182,82 @@ async def cmd_chat() -> int:
                 print_statuses(manager)
                 continue
             if text == "/limpar":
-                conversation.clear()
-                print("(conversa apagada)")
+                conversation = open_conversation(assistant)
+                print("(nova conversa; a anterior continua no histórico)")
                 continue
             try:
-                print_result(await orchestrator.ask(conversation, text))
+                print_result(await assistant.ask(conversation, text))
             except AllAgentsFailedError as exc:
                 print_failure(exc)
     finally:
         await monitor.stop()
-        await manager.close()
+        await shutdown(manager, assistant)
     return 0
+
+
+def _memory_store():
+    from jarvis.memory.store import MemoryStore
+
+    return MemoryStore(load_settings().data_dir / "memory.db")
+
+
+def _confirm(question: str) -> bool:
+    try:
+        return input(f"{question} Digite SIM para confirmar: ").strip() == "SIM"
+    except EOFError:
+        return False
+
+
+def cmd_memory(action: str, value: str | None) -> int:
+    store = _memory_store()
+    try:
+        if action == "list":
+            facts = store.facts()
+            if not facts:
+                print("(nenhuma lembrança guardada)")
+            for fact in facts:
+                print(f"{fact.id:>4}  {fact.text}")
+        elif action == "add":
+            saved = store.add_fact(value or "")
+            print(f"guardado: {saved.text}" if saved else "já estava guardado (ou vazio)")
+        elif action == "forget":
+            ok = value is not None and value.isdigit() and store.delete_fact(int(value))
+            print("esquecido" if ok else "não encontrei esse número (veja: jarvis memory list)")
+            return 0 if ok else 1
+        elif action == "clear":
+            if not _confirm("Apagar TODAS as lembranças de longo prazo?"):
+                print("cancelado")
+                return 1
+            print(f"{store.delete_all_facts()} lembranças apagadas")
+        return 0
+    finally:
+        store.close()
+
+
+def cmd_history(action: str, value: str | None) -> int:
+    store = _memory_store()
+    try:
+        if action == "list":
+            for info in store.list_conversations():
+                when = datetime.fromtimestamp(info.updated_at).strftime("%d/%m %H:%M")
+                print(f"{info.id[:8]}  {when}  {info.messages:>3} msgs  {info.title}")
+        elif action == "show":
+            matches = [c for c in store.list_conversations(500) if c.id.startswith(value or "-")]
+            if len(matches) != 1:
+                print("informe o início do id (veja: jarvis history list)")
+                return 1
+            conversation = store.load_conversation(matches[0].id)
+            for turn in conversation.turns:
+                who = "Você" if turn.message.role == "user" else "JARVIS"
+                print(f"{who}: {turn.message.content}\n")
+        elif action == "clear":
+            if not _confirm("Apagar TODO o histórico de conversas?"):
+                print("cancelado")
+                return 1
+            print(f"{store.delete_all_conversations()} conversas apagadas")
+        return 0
+    finally:
+        store.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,7 +267,16 @@ def main(argv: list[str] | None = None) -> int:
     status.add_argument("--json", action="store_true", help="machine-readable output")
     ask = sub.add_parser("ask", help="ask one question")
     ask.add_argument("question", nargs="+")
-    sub.add_parser("chat", help="start a conversation")
+    chat = sub.add_parser("chat", help="start a conversation")
+    chat.add_argument("--continue", dest="resume", action="store_true", help="resume the last one")
+    memory = sub.add_parser(
+        "memory", help="long-term memory: list | add <text> | forget <id> | clear"
+    )
+    memory.add_argument("action", choices=["list", "add", "forget", "clear"])
+    memory.add_argument("value", nargs="*")
+    history = sub.add_parser("history", help="saved conversations: list | show <id> | clear")
+    history.add_argument("action", choices=["list", "show", "clear"])
+    history.add_argument("value", nargs="?")
     unblock = sub.add_parser("unblock", help="lift a persisted cost/billing block")
     unblock.add_argument("agent_id")
     voice = sub.add_parser("voice", help="talk to JARVIS (microphone + speaker)")
@@ -223,13 +316,17 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(voice_cli.cmd_speak(" ".join(args.text), args.tts))
         return asyncio.run(voice_cli.cmd_transcribe(args.path))
 
+    if args.command == "memory":
+        return cmd_memory(args.action, " ".join(args.value) or None)
+    if args.command == "history":
+        return cmd_history(args.action, args.value)
     if args.command == "status":
         return asyncio.run(cmd_status(args.json))
     if args.command == "unblock":
         return asyncio.run(cmd_unblock(args.agent_id))
     if args.command == "ask":
         return asyncio.run(cmd_ask(" ".join(args.question)))
-    return asyncio.run(cmd_chat())
+    return asyncio.run(cmd_chat(args.resume))
 
 
 if __name__ == "__main__":

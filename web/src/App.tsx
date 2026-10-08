@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { AgentPanel } from "./components/AgentPanel";
 import { Conversation } from "./components/Conversation";
+import { HistoryBar } from "./components/HistoryBar";
+import { MemoryPanel } from "./components/MemoryPanel";
 import { Orb } from "./components/Orb";
 import { Microphone } from "./lib/mic";
 import { VoicePlayer } from "./lib/player";
@@ -150,6 +152,15 @@ export default function App() {
         </section>
 
         <section className="chat">
+          <HistoryBar
+            conversations={state.conversations}
+            currentId={state.conversationId}
+            hasSummary={state.hasSummary}
+            disabled={!online || busy}
+            onOpen={(id) => socket.current?.send({ type: "open_conversation", id })}
+            onNew={() => socket.current?.send({ type: "new_conversation" })}
+            onDelete={(id) => socket.current?.send({ type: "delete_conversation", id })}
+          />
           <Conversation entries={state.entries} />
           <form
             className="composer"
@@ -173,23 +184,21 @@ export default function App() {
               disabled={!online}
               aria-label="Mensagem"
             />
-            <div className="composer-actions">
-              <button type="submit" disabled={!online || busy || !draft.trim()}>
-                Enviar
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => socket.current?.send({ type: "clear" })}
-                disabled={!online || state.entries.length === 0}
-              >
-                Limpar
-              </button>
-            </div>
+            <button type="submit" disabled={!online || busy || !draft.trim()}>
+              Enviar
+            </button>
           </form>
         </section>
 
-        <AgentPanel agents={state.agents} currentAgentId={state.currentAgentId} costMode={state.costMode} />
+        <div className="side">
+          <AgentPanel agents={state.agents} currentAgentId={state.currentAgentId} costMode={state.costMode} />
+          <MemoryPanel
+            enabled={state.memoryEnabled}
+            facts={state.facts}
+            onForget={(id) => socket.current?.send({ type: "forget_fact", id })}
+            onForgetAll={() => socket.current?.send({ type: "clear_facts", confirm: true })}
+          />
+        </div>
       </main>
     </div>
   );

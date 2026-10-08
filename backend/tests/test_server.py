@@ -16,6 +16,9 @@ from jarvis.config import Settings  # noqa: E402
 from jarvis.core.agent_manager import AgentManager  # noqa: E402
 from jarvis.core.cost_guard import CostGuard  # noqa: E402
 from jarvis.core.errors import ProviderUnavailableError  # noqa: E402
+from jarvis.core.orchestrator import Orchestrator  # noqa: E402
+from jarvis.memory.assistant import Assistant  # noqa: E402
+from jarvis.memory.store import MemoryStore  # noqa: E402
 from jarvis.server.app import create_app  # noqa: E402
 from jarvis.server.connection import MAX_TEXT  # noqa: E402
 from jarvis.server.runtime import JarvisRuntime, VoiceEngines  # noqa: E402
@@ -51,12 +54,13 @@ class ToneTTS(TTSProvider):
         return AudioClip((0.2 * np.sin(2 * np.pi * 330 * t)).astype(np.float32), 22_050)
 
 
-def make_client(agents, *, stt_texts=(), tmp_path=None):
+def make_client(agents, *, stt_texts=(), tmp_path=None, memory=None):
     settings = Settings(data_dir=tmp_path) if tmp_path else Settings()
     manager = AgentManager(agents, CostGuard(), clock=FakeClock())
     tts = ToneTTS()
     voice = VoiceEngines(ScriptedSTT(stt_texts), {"say": tts, "piper": tts})
-    runtime = JarvisRuntime(settings, manager, voice=voice)
+    assistant = Assistant(Orchestrator(manager), memory, summarize=False)
+    runtime = JarvisRuntime(settings, manager, assistant, voice=voice)
     return TestClient(create_app(runtime, web_dist=None)), tts
 
 
@@ -223,3 +227,88 @@ def test_queue_source_rejects_bad_frames():
     assert not source.push(b"")
     assert not source.push(b"\x00")  # odd length is not PCM16
     assert not source.push(b"\x00" * (64 * 1024 + 2))
+
+
+# -- memory over WebSocket ------------------------------------------------------------
+
+
+class KeepOpenStore(MemoryStore):
+    """The app closes its store on shutdown; tests reuse one across clients."""
+
+    def close(self):
+        pass
+
+
+def connect(client):
+    ws = client.websocket_connect("/ws", headers={"origin": ORIGIN})
+    return ws
+
+
+def test_reconnecting_resumes_the_last_conversation():
+    store = KeepOpenStore()
+    client, _ = make_client([FakeAgent("a", ["Docker é uma plataforma."])], memory=store)
+    with client, connect(client) as ws:
+        receive_until(ws, is_type("state", state="idle"))
+        ws.send_json({"type": "text", "text": "explique Docker"})
+        receive_until(ws, is_type("answer"))
+
+    client, _ = make_client([FakeAgent("a")], memory=store)
+    with client, connect(client) as ws:
+        history = next(
+            m for m in receive_until(ws, is_type("state", state="idle")) if is_type("history")(m)
+        )
+    assert [(m["role"], m["text"]) for m in history["messages"]] == [
+        ("user", "explique Docker"),
+        ("assistant", "Docker é uma plataforma."),
+    ]
+    assert history["title"] == "explique Docker"
+
+
+def test_new_and_reopened_conversations():
+    store = KeepOpenStore()
+    client, _ = make_client([FakeAgent("a", ["resposta antiga", "resposta nova"])], memory=store)
+    with client, connect(client) as ws:
+        receive_until(ws, is_type("state", state="idle"))
+        ws.send_json({"type": "text", "text": "assunto antigo"})
+        receive_until(ws, is_type("answer"))
+        old_id = store.latest_conversation().id
+
+        ws.send_json({"type": "new_conversation"})
+        seen = receive_until(ws, is_type("cleared"))
+        assert next(m for m in seen if is_type("history")(m))["messages"] == []
+        listed = next(m for m in seen if is_type("conversations")(m))["conversations"]
+        assert [c["title"] for c in listed] == ["assunto antigo"]
+
+        ws.send_json({"type": "open_conversation", "id": old_id})
+        reopened = receive_until(ws, is_type("history"))[-1]
+        assert reopened["conversation_id"] == old_id
+        assert reopened["messages"][0]["text"] == "assunto antigo"
+
+        ws.send_json({"type": "open_conversation", "id": "nao-existe"})
+        receive_until(ws, is_type("error"))
+        ws.send_json({"type": "delete_conversation", "id": old_id})
+        after = receive_until(ws, is_type("conversations"))[-1]
+        assert after["conversations"] == []
+
+
+def test_facts_are_managed_from_the_interface():
+    store = KeepOpenStore()
+    agent = FakeAgent("a")
+    client, _ = make_client([agent], memory=store)
+    with client, connect(client) as ws:
+        receive_until(ws, is_type("state", state="idle"))
+        ws.send_json({"type": "text", "text": "JARVIS, lembre que eu uso macOS"})
+        answer = receive_until(ws, is_type("answer"))[-1]
+        assert answer["agent_id"] == "jarvis:memoria" and answer["cost"] == 0
+        facts = receive_until(ws, is_type("facts"))[-1]["facts"]
+        assert [f["text"] for f in facts] == ["eu uso macOS"]
+
+        ws.send_json({"type": "clear_facts"})  # without confirm: nothing happens
+        ws.send_json({"type": "list_facts"})
+        assert receive_until(ws, is_type("facts"))[-1]["facts"]
+
+        ws.send_json({"type": "forget_fact", "id": facts[0]["id"]})
+        assert receive_until(ws, is_type("facts"))[-1]["facts"] == []
+        ws.send_json({"type": "forget_fact", "id": "1; DROP TABLE facts"})
+        receive_until(ws, is_type("error"))
+    assert agent.calls == []

@@ -1,0 +1,166 @@
+// UI state: a pure reducer over server events, so it can be unit-tested.
+import type {
+  AgentStatus,
+  Attempt,
+  ConversationSummary,
+  Fact,
+  JarvisState,
+  ServerEvent,
+} from "./protocol";
+
+export type Connection = "connecting" | "open" | "closed";
+
+export interface ChatEntry {
+  id: number;
+  role: "user" | "jarvis" | "error";
+  text: string;
+  mode: "text" | "voice";
+  agentId?: string;
+  task?: string;
+  latencyMs?: number;
+  attempts?: Attempt[];
+}
+
+export interface UiState {
+  connection: Connection;
+  serverState: JarvisState;
+  voiceActive: boolean;
+  voiceEngines: string | null;
+  voiceReady: boolean;
+  ttsEngine: string;
+  maxText: number;
+  costMode: string;
+  agents: AgentStatus[];
+  entries: ChatEntry[];
+  currentAgentId: string | null;
+  nextId: number;
+  conversationId: string | null;
+  conversationTitle: string;
+  hasSummary: boolean;
+  conversations: ConversationSummary[];
+  memoryEnabled: boolean;
+  facts: Fact[];
+}
+
+export const initialState: UiState = {
+  connection: "connecting",
+  serverState: "idle",
+  voiceActive: false,
+  voiceEngines: null,
+  voiceReady: false,
+  ttsEngine: "say",
+  maxText: 4000,
+  costMode: "FREE_ONLY",
+  agents: [],
+  entries: [],
+  currentAgentId: null,
+  nextId: 1,
+  conversationId: null,
+  conversationTitle: "",
+  hasSummary: false,
+  conversations: [],
+  memoryEnabled: false,
+  facts: [],
+};
+
+export type Action =
+  | { kind: "server"; event: ServerEvent }
+  | { kind: "connection"; status: Connection }
+  | { kind: "user"; text: string };
+
+const MAX_ENTRIES = 200;
+
+function addEntry(state: UiState, entry: Omit<ChatEntry, "id">): UiState {
+  const entries = [...state.entries, { ...entry, id: state.nextId }].slice(-MAX_ENTRIES);
+  return { ...state, entries, nextId: state.nextId + 1 };
+}
+
+export function reducer(state: UiState, action: Action): UiState {
+  if (action.kind === "connection") {
+    const next = { ...state, connection: action.status };
+    // A dropped connection ends any voice loop on the server side.
+    return action.status === "open" ? next : { ...next, voiceActive: false, serverState: "idle" };
+  }
+  if (action.kind === "user") {
+    return addEntry(state, { role: "user", text: action.text, mode: "text" });
+  }
+
+  const event = action.event;
+  switch (event.type) {
+    case "hello":
+      return {
+        ...state,
+        voiceReady: event.voice_ready,
+        ttsEngine: event.tts_engine,
+        maxText: event.max_text,
+      };
+    case "state":
+      return { ...state, serverState: event.state };
+    case "transcript":
+      return addEntry(state, { role: "user", text: event.text, mode: "voice" });
+    case "answer":
+      return {
+        ...addEntry(state, {
+          role: "jarvis",
+          text: event.text,
+          mode: event.mode,
+          agentId: event.agent_id,
+          task: event.task,
+          latencyMs: event.latency_ms,
+          attempts: event.attempts,
+        }),
+        currentAgentId: event.agent_id,
+      };
+    case "agents":
+      return { ...state, agents: event.agents, costMode: event.cost_mode };
+    case "voice":
+      return {
+        ...state,
+        voiceActive: event.active,
+        voiceReady: event.active ? true : state.voiceReady,
+        voiceEngines: event.active && event.stt && event.tts ? `${event.stt} · ${event.tts}` : state.voiceEngines,
+      };
+    case "cleared":
+      return { ...state, entries: [], currentAgentId: null };
+    case "error":
+      return addEntry(state, {
+        role: "error",
+        text: event.message,
+        mode: "text",
+        attempts: event.attempts,
+      });
+    case "history": {
+      const entries: ChatEntry[] = event.messages.slice(-MAX_ENTRIES).map((m, i) => ({
+        id: state.nextId + i,
+        role: m.role === "user" ? "user" : "jarvis",
+        text: m.text,
+        mode: "text",
+        agentId: m.agent_id ?? undefined,
+      }));
+      return {
+        ...state,
+        entries,
+        nextId: state.nextId + entries.length,
+        conversationId: event.conversation_id,
+        conversationTitle: event.title,
+        hasSummary: event.has_summary,
+        currentAgentId: null,
+      };
+    }
+    case "conversations":
+      return { ...state, conversations: event.conversations };
+    case "facts":
+      return { ...state, memoryEnabled: event.enabled, facts: event.facts };
+    case "stop_audio":
+      return state;
+  }
+}
+
+export const STATE_LABELS: Record<JarvisState | "offline", string> = {
+  idle: "Pronto",
+  loading: "Carregando a voz…",
+  listening: "Ouvindo…",
+  thinking: "Pensando…",
+  speaking: "Falando…",
+  offline: "Sem conexão com o servidor",
+};

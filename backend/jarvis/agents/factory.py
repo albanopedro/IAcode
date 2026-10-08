@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from jarvis.agents.openai_compat.adapter import OpenAICompatAgent
 from jarvis.agents.opencode.adapter import OpenCodeAgent
-from jarvis.agents.opencode.server import OpenCodeServer
+from jarvis.agents.opencode.runtime import OpenCodeRuntime
 from jarvis.config import Settings
 from jarvis.core.provider import AIProvider
 from jarvis.core.types import AgentInfo
@@ -14,11 +14,11 @@ def build_agents(settings: Settings) -> list[AIProvider]:
     agents: list[AIProvider] = []
 
     if settings.opencode.enabled and settings.opencode.models:
-        server = OpenCodeServer(settings.opencode.binary)
+        runtime = OpenCodeRuntime(settings.opencode.binary)
         for model in settings.opencode.models:
             agents.append(
                 OpenCodeAgent(
-                    server,
+                    runtime,
                     model.id,
                     name=model.name,
                     priority=model.priority,

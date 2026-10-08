@@ -47,9 +47,9 @@ def test_project_config_builds_only_free_agents(tmp_path):
     assert any(isinstance(a, OpenAICompatAgent) for a in agents)
     assert all(a.info.cost_class is not CostClass.PAID for a in agents)
     assert all(not a.info.allow_paid for a in agents)
-    # Every OpenCode agent shares one private server.
-    servers = {id(a.server) for a in agents if isinstance(a, OpenCodeAgent)}
-    assert len(servers) == 1
+    # Every OpenCode agent shares one runtime (sandbox + private server).
+    runtimes = {id(a.runtime) for a in agents if isinstance(a, OpenCodeAgent)}
+    assert len(runtimes) == 1
 
 
 def test_disabled_agents_are_not_built(tmp_path):

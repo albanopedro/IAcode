@@ -2,10 +2,12 @@
 
 Why a private server instead of the user's background service:
 - it listens on 127.0.0.1 only, on a random port, with a one-time password;
-- it runs in an empty temporary directory, so there is nothing to read or edit;
+- it runs inside the JARVIS sandbox (own OpenCode home, empty folder);
 - JARVIS controls its lifecycle and shuts it down on exit.
 
-The OpenCode v2 HTTP API is verified at start-up against its OpenAPI document,
+JARVIS uses the server to inspect OpenCode (models, prices, provider, agent
+permissions) and the official ``opencode run --server`` client attaches to it to
+send messages. The HTTP API is checked against its OpenAPI document at start-up,
 so a future OpenCode upgrade fails loudly instead of misbehaving.
 """
 
@@ -16,27 +18,16 @@ import contextlib
 import re
 import shutil
 import socket
-import tempfile
 from typing import Any
 
 import httpx
 
 from jarvis.agents.errors import error_from_message, error_from_status, parse_retry_after
+from jarvis.agents.opencode.sandbox import OpenCodeSandbox
 from jarvis.core.errors import InvalidResponseError, NotConfiguredError, ProviderUnavailableError
 
 REQUIRED_OPERATIONS = frozenset(
-    {
-        "server.info",
-        "model.list",
-        "provider.list",
-        "provider.get",
-        "session.create",
-        "session.get",
-        "session.prompt",
-        "session.message.list",
-        "session.interrupt",
-        "session.remove",
-    }
+    {"server.info", "model.list", "provider.list", "provider.get", "agent.list", "agent.get"}
 )
 _PASSWORD = re.compile(r"server password (\S+)")
 
@@ -50,11 +41,13 @@ def _free_port() -> int:
 class OpenCodeServer:
     def __init__(
         self,
+        sandbox: OpenCodeSandbox,
         binary: str = "opencode",
         *,
         startup_timeout: float = 30.0,
-        request_timeout: float = 60.0,
+        request_timeout: float = 30.0,
     ) -> None:
+        self.sandbox = sandbox
         self.binary = binary
         self.startup_timeout = startup_timeout
         self.request_timeout = request_timeout
@@ -62,12 +55,19 @@ class OpenCodeServer:
         self._client: httpx.AsyncClient | None = None
         self._drain: asyncio.Task | None = None
         self._lock = asyncio.Lock()
-        self.workdir: str | None = None
+        self.url: str | None = None
+        self.password: str | None = None
         self.version: str | None = None
 
     @property
     def running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
+
+    def executable(self) -> str:
+        path = shutil.which(self.binary)
+        if path is None:
+            raise NotConfiguredError(f"OpenCode binary not found: {self.binary!r}")
+        return path
 
     async def ensure_started(self) -> None:
         async with self._lock:
@@ -77,36 +77,31 @@ class OpenCodeServer:
             await self._start()
 
     async def _start(self) -> None:
-        executable = shutil.which(self.binary)
-        if executable is None:
-            raise NotConfiguredError(f"OpenCode binary not found: {self.binary!r}")
-
-        self.workdir = tempfile.mkdtemp(prefix="jarvis-opencode-")
         port = _free_port()
         self._proc = await asyncio.create_subprocess_exec(
-            executable,
+            self.executable(),
             "serve",
             "--hostname",
             "127.0.0.1",
             "--port",
             str(port),
-            cwd=self.workdir,
+            cwd=self.sandbox.workdir,
+            env=self.sandbox.env(),
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            password = await asyncio.wait_for(self._read_password(), self.startup_timeout)
+            self.password = await asyncio.wait_for(self._read_password(), self.startup_timeout)
         except (TimeoutError, NotConfiguredError) as exc:
             await self._shutdown()
             raise NotConfiguredError(f"OpenCode server did not start: {exc}") from exc
 
         # Keep reading stdout so the pipe never fills up and blocks the server.
         self._drain = asyncio.create_task(self._drain_stdout())
+        self.url = f"http://127.0.0.1:{port}"
         self._client = httpx.AsyncClient(
-            base_url=f"http://127.0.0.1:{port}",
-            auth=("opencode", password),
-            timeout=self.request_timeout,
+            base_url=self.url, auth=("opencode", self.password), timeout=self.request_timeout
         )
         try:
             await self._wait_until_ready()
@@ -160,13 +155,14 @@ class OpenCodeServer:
             )
 
     async def _wait_for_catalog(self) -> None:
-        """Right after start-up the provider and model snapshots are still empty."""
+        """Right after start-up the provider, model and agent snapshots are still empty."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.startup_timeout
         while loop.time() < deadline:
             providers = (await self.request("GET", "/api/provider"))["data"]
             models = (await self.request("GET", "/api/model"))["data"]
-            if providers and models:
+            agents = (await self.request("GET", "/api/agent"))["data"]
+            if providers and models and agents:
                 return
             await asyncio.sleep(0.25)
         raise NotConfiguredError("OpenCode started but never listed its providers and models")
@@ -200,8 +196,11 @@ class OpenCodeServer:
     async def models(self) -> list[dict]:
         return (await self.request("GET", "/api/model"))["data"]
 
-    async def provider(self, provider_id: str) -> dict:
-        return (await self.request("GET", f"/api/provider/{provider_id}"))["data"]
+    async def providers(self) -> list[dict]:
+        return (await self.request("GET", "/api/provider"))["data"]
+
+    async def agent(self, name: str) -> dict:
+        return (await self.request("GET", f"/api/agent/{name}"))["data"]
 
     async def close(self) -> None:
         async with self._lock:
@@ -222,6 +221,4 @@ class OpenCodeServer:
         if self._drain is not None:
             self._drain.cancel()
             self._drain = None
-        if self.workdir is not None:
-            shutil.rmtree(self.workdir, ignore_errors=True)
-            self.workdir = None
+        self.url = self.password = None

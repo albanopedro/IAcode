@@ -1,0 +1,77 @@
+# JARVIS agents — this file holds NO secrets (API keys go in ../.env).
+#
+# Cost rule: COST_MODE comes only from the environment and defaults to FREE_ONLY.
+# This file cannot change it. Agents with cost_class = "paid" stay blocked unless
+# COST_MODE=ALLOW_PAID *and* the agent sets allow_paid = true.
+#
+# priority: 0..100, higher wins. The router also adds a bonus when the agent
+# has the capability for the task (chat, code, math, research, reasoning, vision),
+# and subtracts for recent failures and slow answers.
+
+# ---------------------------------------------------------------------------
+# OpenCode (official v2 HTTP server, started privately by JARVIS)
+# Only free OpenCode Zen models are allowed: names ending in "-free" (or
+# big-pickle) whose price is 0 on every tier, with no paid credential set.
+# The free list changes often: run `jarvis status` to see what is offered.
+# ---------------------------------------------------------------------------
+[opencode]
+enabled = true
+binary = "opencode"
+timeout = 120
+
+[[opencode.models]]
+id = "space-bunny-free"
+name = "OpenCode · Space Bunny (zero retention)"
+priority = 70
+privacy = "zero_retention"
+capabilities = ["chat", "code", "math", "reasoning", "research"]
+
+[[opencode.models]]
+id = "longcat-2.5-preview-free"
+name = "OpenCode · LongCat 2.5 (zero retention)"
+priority = 65
+privacy = "zero_retention"
+capabilities = ["chat", "code", "reasoning", "research"]
+
+[[opencode.models]]
+id = "big-pickle"
+name = "OpenCode · Big Pickle"
+priority = 55
+privacy = "may_train"
+capabilities = ["chat", "code", "reasoning"]
+
+# ---------------------------------------------------------------------------
+# OpenAI-compatible providers. Each one stays "unconfigured" until its key is
+# in .env. Accounts must be on the FREE plan with NO payment method on file.
+# ---------------------------------------------------------------------------
+
+# Groq free plan: no card, ~30 req/min and ~1,000 req/day per model (resets).
+# Never upgrade to the Developer plan (it requires a card).
+[[openai_compat]]
+id = "groq:gpt-oss-120b"
+name = "Groq · gpt-oss-120b"
+provider = "groq"
+base_url = "https://api.groq.com/openai/v1"
+model = "openai/gpt-oss-120b"
+api_key_env = "GROQ_API_KEY"
+cost_class = "free_with_limits"
+daily_limit = 1000
+priority = 60
+privacy = "unknown"
+capabilities = ["chat", "code", "math", "reasoning"]
+
+# OpenRouter: only ":free" models (enforced), 50 req/day without purchases.
+# Never buy credits: an account with zero balance cannot be charged (HTTP 402).
+[[openai_compat]]
+id = "openrouter:gemma-4-31b"
+name = "OpenRouter · Gemma 4 31B (free)"
+provider = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+model = "google/gemma-4-31b-it:free"
+api_key_env = "OPENROUTER_API_KEY"
+cost_class = "free_with_limits"
+free_model_pattern = ":free$"
+daily_limit = 50
+priority = 45
+privacy = "may_train"
+capabilities = ["chat", "reasoning"]

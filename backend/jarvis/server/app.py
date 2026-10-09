@@ -96,7 +96,7 @@ def create_app(
 
     @app.get("/api/health")
     async def health() -> dict:
-        return {"ok": True}
+        return {"ok": True, "app": "jarvis"}  # the launcher checks who owns the port
 
     @app.get("/api/status")
     async def status(request: Request) -> dict:

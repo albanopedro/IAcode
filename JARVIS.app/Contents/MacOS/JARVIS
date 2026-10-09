@@ -1,0 +1,86 @@
+#!/bin/zsh
+# JARVIS.app — opens JARVIS with a double click (or from the Dock), without a Terminal window.
+# - Not running yet: starts the server in the background and opens the browser.
+# - Already running: asks whether to open it or turn it off.
+# - First run (or after an update): opens JARVIS.command in the Terminal, which installs
+#   everything and shows the progress.
+# Everything stays on this Mac (127.0.0.1). The app must stay inside the project folder;
+# keep it in the Dock by dragging it there (the Dock stores a shortcut, not a copy).
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+ROOT="${0:A:h:h:h:h}"
+PORT="${JARVIS_PORT:-8300}"
+URL="http://127.0.0.1:$PORT"
+PY="$ROOT/backend/.venv/bin/python"
+LOG="$ROOT/data/logs/jarvis.log"
+
+say_dialog() {  # message, buttons (AppleScript list), default button → the chosen button
+  osascript -e "button returned of (display dialog \"$1\" buttons {$2} default button \"$3\" with title \"JARVIS\" with icon note)" 2>/dev/null
+}
+
+is_jarvis() {
+  curl -fsS -m 2 "$URL/api/health" 2>/dev/null | grep -q '"app":"jarvis"'
+}
+
+jarvis_pids() {  # processes listening on the port that really are "jarvis serve"
+  local pid
+  for pid in $(lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null); do
+    ps -o command= -p "$pid" | grep -q "jarvis serve" && echo "$pid"
+  done
+}
+
+needs_setup() {
+  [[ ! -x "$PY" ]] && return 0
+  cmp -s "$ROOT/backend/pyproject.toml" "$ROOT/backend/.venv/.jarvis-installed" || return 0
+  [[ ! -f "$ROOT/web/dist/index.html" ]] && return 0
+  [[ -n "$(find "$ROOT/web/src" -newer "$ROOT/web/dist/index.html" -print -quit)" ]] && return 0
+  return 1
+}
+
+if [[ ! -f "$ROOT/backend/pyproject.toml" ]]; then
+  say_dialog "Não achei o projeto. Deixe o JARVIS.app dentro da pasta agenteIA (para o Dock, arraste o app até lá)." '"OK"' "OK"
+  exit 1
+fi
+
+# Already on: open it or turn it off.
+if is_jarvis; then
+  choice=$(say_dialog "O JARVIS já está ligado." '"Desligar", "Abrir"' "Abrir")
+  if [[ "$choice" == "Desligar" ]]; then
+    pids=($(jarvis_pids))
+    (( ${#pids} )) && kill -TERM $pids
+    for _ in {1..20}; do is_jarvis || break; sleep 0.5; done
+    osascript -e 'display notification "JARVIS desligado." with title "JARVIS"'
+  elif [[ "$choice" == "Abrir" ]]; then
+    open "$URL"
+  fi
+  exit 0
+fi
+
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  say_dialog "A porta $PORT está ocupada por outro programa. Feche-o ou defina JARVIS_PORT." '"OK"' "OK"
+  exit 1
+fi
+
+# First run or an update: install in the Terminal, where the progress is visible.
+if needs_setup; then
+  open -a Terminal "$ROOT/JARVIS.command"
+  exit 0
+fi
+
+mkdir -p "${LOG:h}"
+print "\n=== $(date '+%Y-%m-%d %H:%M:%S') JARVIS.app ===" >>"$LOG"
+cd "$ROOT/backend"
+PYTHONUNBUFFERED=1 nohup "$PY" -m jarvis serve --port "$PORT" >>"$LOG" 2>&1 &!
+server=$!
+
+for _ in {1..120}; do  # up to 60 s
+  if is_jarvis; then
+    [[ -z "$JARVIS_NO_BROWSER" ]] && open "$URL"
+    exit 0
+  fi
+  kill -0 "$server" 2>/dev/null || break  # the server stopped: show the error
+  sleep 0.5
+done
+
+choice=$(say_dialog "O JARVIS não conseguiu iniciar. Os detalhes estão em data/logs/jarvis.log." '"Fechar", "Ver log"' "Ver log")
+[[ "$choice" == "Ver log" ]] && open -e "$LOG"
+exit 1

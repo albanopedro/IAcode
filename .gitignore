@@ -11,3 +11,5 @@ data/
 
 # The global gitignore ignores every lib/ folder; this one is source code.
 !web/src/lib/
+# ...and every *.app bundle: this one is the launcher.
+!JARVIS.app/

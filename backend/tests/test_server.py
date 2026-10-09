@@ -103,7 +103,7 @@ def pcm_frames(clip_seconds_tone=0.8):
 def test_health_and_status():
     client, _ = make_client([FakeAgent("a")])
     with client:
-        assert client.get("/api/health").json() == {"ok": True}
+        assert client.get("/api/health").json() == {"ok": True, "app": "jarvis"}
         status = client.get("/api/status").json()
     assert status["cost_mode"] == "FREE_ONLY"
     assert [a["id"] for a in status["agents"]] == ["a"]

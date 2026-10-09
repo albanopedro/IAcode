@@ -33,8 +33,14 @@ limite, falha ou fica offline. Sem internet, um modelo **local** assume.
 
 ## Começar
 
-**Mais fácil (macOS):** dê dois cliques em **`JARVIS.command`**. Na primeira vez ele cria
-o ambiente e compila a interface; depois abre http://127.0.0.1:8300.
+**Mais fácil (macOS):** dê dois cliques em **`JARVIS.app`** (ou arraste-o para o Dock).
+Ele liga o JARVIS em segundo plano, sem janela do Terminal, e abre
+http://127.0.0.1:8300. Clicado de novo com o JARVIS ligado, pergunta se você quer
+**Abrir** ou **Desligar**. Na primeira vez (e depois de uma atualização) ele abre o
+`JARVIS.command` no Terminal, que cria o ambiente e compila a interface mostrando o
+progresso. O log fica em `data/logs/jarvis.log`.
+
+O app precisa ficar dentro da pasta do projeto; o Dock guarda só um atalho para ele.
 
 **Manual:**
 

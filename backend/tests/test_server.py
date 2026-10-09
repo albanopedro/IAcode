@@ -401,3 +401,32 @@ def test_security_headers_block_framing_and_sniffing():
             assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
             assert response.headers["x-content-type-options"] == "nosniff"
             assert response.headers["referrer-policy"] == "no-referrer"
+
+
+def test_wake_word_over_websocket():
+    from tests.test_wakeword import LoudnessWakeWord
+
+    client, tts = make_client([FakeAgent("a")], stt_texts=["oi"])
+    with client, connect(client) as ws:
+        rt = client.app.state.runtime
+
+        async def fake_wake_word():
+            return LoudnessWakeWord()
+
+        rt.wake_word = fake_wake_word
+        receive_until(ws, is_type("state", state="idle"))
+        ws.send_json({"type": "voice_start", "wake": True})
+        voice = receive_until(ws, is_type("voice"))[-1]
+        assert voice["active"] is True and voice["wake"] is True
+        receive_until(ws, is_type("state", state="sleeping"))
+        t = np.arange(int(0.5 * RATE)) / RATE
+        loud = (0.4 * np.sin(2 * np.pi * 880 * t) * 32767).astype(np.int16)
+        frame = RATE * 30 // 1000
+        for i in range(0, len(loud) - frame + 1, frame):
+            ws.send_bytes(loud[i : i + frame].tobytes())
+        wake = receive_until(ws, is_type("wake"))[-1]
+        assert wake["score"] > 0.5
+        receive_until(ws, lambda m: isinstance(m, bytes))  # "Sim?" is spoken
+        ws.send_json({"type": "voice_stop"})
+        receive_until(ws, is_type("state", state="idle"))
+    assert tts.sentences[0] == "Sim?"

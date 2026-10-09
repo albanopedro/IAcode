@@ -15,6 +15,9 @@ limite, falha ou fica offline. Sem internet, um modelo **local** assume.
   respeita cotas por minuto e por dia antes de o provedor recusar.
 - **Voz local:** whisper.cpp (fala → texto) e `say` do macOS ou Piper (texto → fala),
   conversa contínua, respostas curtas para ouvir.
+- **"Hey Jarvis":** o JARVIS dorme até ouvir a palavra-chave (pronúncia em inglês),
+  conversa e volta a dormir depois de um silêncio ou de "tchau JARVIS". Enquanto ele
+  dorme, o áudio é analisado localmente e descartado: nada é gravado nem enviado.
 - **Interface** com orb animado, estados (ouvindo, pensando, falando), voz no navegador,
   painel de agentes, histórico e memória.
 - **Memória:** histórico salvo, resumo automático de conversas longas e lembranças que
@@ -66,7 +69,7 @@ Sem chave, o agente fica ⚪ "sem chave" e o JARVIS segue com os outros.
 | `jarvis serve [--open] [--port N]` | Interface web (só em 127.0.0.1) |
 | `jarvis chat [--continue] [--local]` | Conversa no terminal (`/status`, `/limpar`, `/sair`) |
 | `jarvis ask "…" [--local]` | Uma pergunta |
-| `jarvis voice [--tts piper] [--once]` | Conversa por voz no terminal |
+| `jarvis voice [--wake] [--tts piper] [--once]` | Conversa por voz no terminal (`--wake`: acorda com "Hey Jarvis") |
 | `jarvis status [--json]` | Saúde e cotas dos agentes (não gasta cota) |
 | `jarvis doctor` | Diagnóstico da instalação (nunca mostra chaves) |
 | `jarvis memory list \| add \| forget \| clear` | Lembranças de longo prazo |
@@ -136,8 +139,11 @@ config/agents.toml   agentes, limites, voz, memória, ferramentas, IA local (sem
   o JARVIS descobre a lista a cada verificação.
 - Não dá para interromper o JARVIS falando (sem cancelamento de eco), e o streaming é
   por frase, não por token.
-- O VAD por energia sofre em ambiente barulhento. O wake word ("Hey JARVIS") e a
-  automação do sistema ficaram para depois.
+- O VAD por energia sofre em ambiente barulhento. A automação do sistema ficou para
+  depois.
+- O modelo pronto "hey_jarvis" do openWakeWord é **CC BY-NC-SA 4.0** (uso pessoal, não
+  comercial) e foi treinado com a pronúncia inglesa: "Ei Jarvis" com sotaque brasileiro
+  quase não acorda. O limiar é ajustável em `[voice] wake_threshold`.
 - O modelo local (4B) é mais fraco que os grandes online.
 
 Histórico de mudanças: [CHANGELOG.md](CHANGELOG.md).

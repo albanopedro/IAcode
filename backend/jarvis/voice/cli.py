@@ -21,6 +21,8 @@ from jarvis.voice.session import Phase, VoiceSession
 from jarvis.voice.stt import Transcript
 
 LABELS = {
+    Phase.SLEEPING: "💤 dormindo… diga “Hey Jarvis” (pronúncia em inglês) para acordar",
+    Phase.AWAKE: "⚡ acordei!",
     Phase.LISTENING: "🎙️  ouvindo… (fale quando quiser; diga “tchau JARVIS” para sair)",
     Phase.THINKING: "💭 pensando…",
     Phase.SPEAKING: "🔊 falando…",
@@ -39,7 +41,7 @@ def print_event(phase: Phase, data: Any) -> None:
         print(f"⚠️  {data}")
 
 
-async def cmd_voice(tts_engine: str | None, once: bool) -> int:
+async def cmd_voice(tts_engine: str | None, once: bool, wake: bool = False) -> int:
     from jarvis.cli import build, open_conversation, shutdown
 
     settings = load_settings()
@@ -50,6 +52,12 @@ async def cmd_voice(tts_engine: str | None, once: bool) -> int:
     await asyncio.gather(asyncio.to_thread(stt.warm_up), asyncio.to_thread(tts.warm_up))
     print(f"Pronto em {time.perf_counter() - started:.1f}s.\n")
 
+    wake_word = None
+    if wake:
+        from jarvis.voice.factory import build_wake_word
+
+        wake_word = build_wake_word(settings)
+        await asyncio.to_thread(wake_word.warm_up)
     session = VoiceSession(
         assistant,  # type: ignore[arg-type]  # same ask() as the orchestrator, plus memory
         stt,
@@ -59,6 +67,8 @@ async def cmd_voice(tts_engine: str | None, once: bool) -> int:
         conversation=open_conversation(assistant),
         vad_config=vad_config(settings.voice),
         stop_phrases=tuple(settings.voice.stop_phrases),
+        wake_word=wake_word,
+        wake_threshold=settings.voice.wake_threshold,
         on_event=print_event,
     )
     monitor = HealthMonitor(manager, interval)

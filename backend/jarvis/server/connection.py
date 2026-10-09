@@ -2,7 +2,8 @@
 
 Client → server (JSON text messages, plus binary microphone audio):
     {"type": "text", "text": "...", "speak": false}   ask in writing (optionally hear it)
-    {"type": "voice_start", "tts": "say" | "piper"}    start the continuous voice loop
+    {"type": "voice_start", "tts": "say" | "piper", "wake": true}   start the voice loop
+                                                       (wake: sleep until "Hey Jarvis")
     {"type": "voice_stop"}                             stop listening
     {"type": "interrupt"}                              stop JARVIS talking
     {"type": "clear"} / {"type": "new_conversation"}   start a new conversation
@@ -217,7 +218,8 @@ class Connection:
                 if engine not in (None, "say", "piper"):
                     self.emit({"type": "error", "message": "voz desconhecida"})
                     return
-                self.voice_task = asyncio.create_task(self._voice_loop(engine))
+                wake = message.get("wake") is True
+                self.voice_task = asyncio.create_task(self._voice_loop(engine, wake))
         elif kind == "voice_stop":
             await self._stop_voice()
         elif kind == "interrupt":
@@ -387,10 +389,13 @@ class Connection:
 
     # -- voice --------------------------------------------------------------------
 
-    async def _voice_loop(self, engine: str | None) -> None:
+    async def _voice_loop(self, engine: str | None, wake: bool = False) -> None:
         self.state("loading")
+        wake_word = None
         try:
             stt, tts = await self.runtime.voice(engine)
+            if wake:
+                wake_word = await self.runtime.wake_word()
         except Exception as exc:
             self.emit({"type": "error", "message": f"voz indisponível: {exc}"})
             self.state("idle")
@@ -408,9 +413,11 @@ class Connection:
             vad_config=vad_config(voice),
             stop_phrases=tuple(voice.stop_phrases),
             on_event=self._on_voice_event,
+            wake_word=wake_word,
+            wake_threshold=voice.wake_threshold,
         )
         self.voice_session = session
-        self.emit({"type": "voice", "active": True, "stt": stt.name, "tts": tts.name})
+        self.emit({"type": "voice", "active": True, "stt": stt.name, "tts": tts.name, "wake": wake})
         try:
             await session.run()
         finally:
@@ -419,7 +426,11 @@ class Connection:
             self.state("idle")
 
     def _on_voice_event(self, phase: Phase, data: Any) -> None:
-        if phase is Phase.LISTENING:
+        if phase is Phase.SLEEPING:
+            self.state("sleeping")
+        elif phase is Phase.AWAKE:
+            self.emit({"type": "wake", "score": round(float(data), 3)})
+        elif phase is Phase.LISTENING:
             self.sink.interrupted = False
             self.state("listening")
         elif phase is Phase.HEARD:

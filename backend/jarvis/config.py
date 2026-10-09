@@ -72,6 +72,8 @@ class VoiceConfig(BaseModel):
     say_voice: str = "Luciana"
     say_rate: int | None = None
     piper_voice: str = "pt_BR-faber-medium"
+    wake_word_model: str = "hey_jarvis_v0.1"  # openWakeWord; CC BY-NC-SA (personal use)
+    wake_threshold: float = 0.5
     silence_ms: int = 900
     no_speech_timeout: float = 8.0
     max_utterance_seconds: float = 30.0

@@ -35,3 +35,12 @@ def vad_config(voice: VoiceConfig) -> VadConfig:
         no_speech_timeout=voice.no_speech_timeout,
         max_seconds=voice.max_utterance_seconds,
     )
+
+
+def build_wake_word(settings: Settings):
+    from jarvis.voice.wakeword import OpenWakeWord
+
+    voice = settings.voice
+    return OpenWakeWord(
+        settings.data_dir / "models" / "wakeword", voice.wake_word_model, voice.wake_threshold
+    )

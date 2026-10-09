@@ -65,6 +65,14 @@ class JarvisRuntime:
     def voice_ready(self) -> bool:
         return self._voice is not None
 
+    async def wake_word(self):
+        """A fresh wake-word detector (its state belongs to one audio stream)."""
+        from jarvis.voice.factory import build_wake_word
+
+        detector = build_wake_word(self.settings)
+        await asyncio.to_thread(detector.warm_up)
+        return detector
+
     async def voice(self, tts_engine: str | None = None):
         """Return (stt, tts), loading the models the first time."""
         engine = tts_engine or self.settings.voice.tts_engine

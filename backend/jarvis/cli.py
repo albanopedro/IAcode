@@ -393,6 +393,7 @@ def main(argv: list[str] | None = None) -> int:
     voice = sub.add_parser("voice", help="talk to JARVIS (microphone + speaker)")
     voice.add_argument("--tts", choices=["say", "piper"], help="override the configured voice")
     voice.add_argument("--once", action="store_true", help="answer one question and stop")
+    voice.add_argument("--wake", action="store_true", help='sleep until "Hey Jarvis"')
     speak = sub.add_parser("speak", help="say a text with the configured voice")
     speak.add_argument("text", nargs="+")
     speak.add_argument("--tts", choices=["say", "piper"])
@@ -438,7 +439,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"voz indisponível ({exc}). Instale com: pip install -e '.[voice]'")
             return 2
         if args.command == "voice":
-            return asyncio.run(voice_cli.cmd_voice(args.tts, args.once))
+            return asyncio.run(voice_cli.cmd_voice(args.tts, args.once, args.wake))
         if args.command == "speak":
             return asyncio.run(voice_cli.cmd_speak(" ".join(args.text), args.tts))
         return asyncio.run(voice_cli.cmd_transcribe(args.path))

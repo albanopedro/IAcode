@@ -186,6 +186,8 @@ export function reducer(state: UiState, action: Action): UiState {
       return { ...state, confirms: [...state.confirms.filter((c) => c.id !== event.id), event] };
     case "confirm_closed":
       return { ...state, confirms: state.confirms.filter((c) => c.id !== event.id) };
+    case "wake":
+      return { ...state, serverState: "listening" };
     case "stop_audio":
       return state;
   }
@@ -194,6 +196,7 @@ export function reducer(state: UiState, action: Action): UiState {
 export const STATE_LABELS: Record<JarvisState | "offline", string> = {
   idle: "Pronto",
   loading: "Carregando a voz…",
+  sleeping: "Dormindo — diga “Hey Jarvis”",
   listening: "Ouvindo…",
   thinking: "Pensando…",
   speaking: "Falando…",

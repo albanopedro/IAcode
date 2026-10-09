@@ -137,6 +137,18 @@ def run_checks(settings: Settings, *, port: int = 8300) -> list[Check]:
                 "" if piper.is_file() else "baixa sozinha no 1º uso (~60 MB)",
             )
         )
+    from jarvis.voice.wakeword import is_downloaded as wake_downloaded
+
+    wake_ok = wake_downloaded(models / "wakeword", settings.voice.wake_word_model)
+    add(
+        Check(
+            "voz",
+            Level.OK if wake_ok else Level.WARN,
+            f"wake word {settings.voice.wake_word_model}: "
+            + ("baixado" if wake_ok else "não baixado"),
+            "" if wake_ok else "baixa sozinho no 1º uso de --wake (~9 MB)",
+        )
+    )
     if settings.local.enabled:
         from jarvis.agents.local.mlx import LocalModelStore
 

@@ -164,6 +164,15 @@ describe("local-only mode", () => {
   });
 });
 
+describe("wake word", () => {
+  it("sleeps, then listens when the wake word is heard", () => {
+    let state = apply(initialState, { type: "state", state: "sleeping" });
+    expect(state.serverState).toBe("sleeping");
+    state = apply(state, { type: "wake", score: 0.98 });
+    expect(state.serverState).toBe("listening");
+  });
+});
+
 describe("parseServerEvent", () => {
   it("rejects garbage", () => {
     expect(parseServerEvent("nope")).toBeNull();

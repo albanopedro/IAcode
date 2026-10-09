@@ -6,6 +6,9 @@
   ("explique Docker" … "e como instalo no Mac?").
 - Streaming on the way out: the answer is split into sentences and the next one is
   synthesized while the current one plays, so the first words come out quickly.
+- Optional wake word: JARVIS sleeps until "Hey Jarvis", answers turn after turn, and
+  goes back to sleep after a silence or "tchau JARVIS". While asleep, audio is only
+  scored locally and discarded.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from jarvis.voice.stt import STTProvider, Transcript
 from jarvis.voice.text import speakable, split_sentences
 from jarvis.voice.tts import TTSProvider
 from jarvis.voice.vad import EnergyVad, VadConfig, VadEvent
+from jarvis.voice.wakeword import WakeWord
 
 DEFAULT_STOP_PHRASES = ("tchau jarvis", "encerrar conversa", "pode parar jarvis", "desligar jarvis")
 VOICE_STYLE = (
@@ -42,9 +46,12 @@ STOP_SIMILARITY = 0.7  # fuzzy match, only for short utterances of 2+ words
 SPELLING_VARIANTS = {"xau": "tchau", "chau": "tchau", "jarbas": "jarvis", "jarvys": "jarvis"}
 FAILURE_MESSAGE = "Desculpe, nenhum dos meus agentes gratuitos conseguiu responder agora."
 GOODBYE_MESSAGE = "Até logo."
+WAKE_REPLY = "Sim?"
 
 
 class Phase(StrEnum):
+    SLEEPING = "sleeping"  # waiting for the wake word
+    AWAKE = "awake"  # wake word heard
     LISTENING = "listening"
     HEARD = "heard"
     THINKING = "thinking"
@@ -89,6 +96,8 @@ class VoiceSession:
         vad_config: VadConfig | None = None,
         stop_phrases: tuple[str, ...] = DEFAULT_STOP_PHRASES,
         on_event: Callable[[Phase, Any], None] | None = None,
+        wake_word: WakeWord | None = None,
+        wake_threshold: float = 0.5,
     ) -> None:
         self.orchestrator = orchestrator
         self.stt = stt
@@ -99,6 +108,8 @@ class VoiceSession:
         self.vad_config = vad_config or VadConfig()
         self.stop_phrases = tuple(_normalize(p) for p in stop_phrases)
         self.on_event = on_event or (lambda _phase, _data: None)
+        self.wake_word = wake_word
+        self.wake_threshold = wake_threshold
 
     # -- listening ---------------------------------------------------------------
 
@@ -117,6 +128,22 @@ class VoiceSession:
         finally:
             await frames.aclose()  # closes the microphone: half-duplex
         return None
+
+    async def wait_for_wake(self) -> float:
+        """Sleep until the wake word is heard. Returns the detection score."""
+        assert self.wake_word is not None
+        self.wake_word.reset()
+        self.on_event(Phase.SLEEPING, None)
+        frames = self.source.frames()
+        try:
+            async for frame in frames:
+                score = self.wake_word.feed(frame)
+                if score >= self.wake_threshold:
+                    self.on_event(Phase.AWAKE, score)
+                    return score
+        finally:
+            await frames.aclose()
+        return 0.0
 
     def is_stop(self, text: str) -> bool:
         normalized = _normalize(text)
@@ -189,7 +216,13 @@ class VoiceSession:
         return TurnResult(TurnOutcome.ANSWERED, transcript, result, timings)
 
     async def run(self, *, max_turns: int | None = None, stop_on_silence: bool = False) -> int:
-        """Continuous conversation. Returns the number of answered turns."""
+        """Continuous conversation. Returns the number of answered turns.
+
+        With a wake word: sleep → "Hey Jarvis" → turns → back to sleep on silence or
+        a stop phrase. Without one: turns until a stop phrase.
+        """
+        if self.wake_word is not None:
+            return await self._run_with_wake_word(max_turns)
         answered = turns = 0
         while max_turns is None or turns < max_turns:
             outcome = (await self.turn()).outcome
@@ -201,4 +234,17 @@ class VoiceSession:
                 continue
             turns += 1
             answered += outcome is TurnOutcome.ANSWERED
+        return answered
+
+    async def _run_with_wake_word(self, max_turns: int | None) -> int:
+        answered = turns = 0
+        while max_turns is None or turns < max_turns:
+            await self.wait_for_wake()
+            await self.speak(WAKE_REPLY)
+            while max_turns is None or turns < max_turns:
+                outcome = (await self.turn()).outcome
+                if outcome in (TurnOutcome.STOP, TurnOutcome.NOTHING_HEARD):
+                    break  # back to sleep
+                turns += 1
+                answered += outcome is TurnOutcome.ANSWERED
         return answered

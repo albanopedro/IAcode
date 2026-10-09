@@ -8,6 +8,7 @@ type OrbState = JarvisState | "offline";
 const LOOK: Record<OrbState, { hue: number; sat: number; speed: number; glow: number }> = {
   idle: { hue: 192, sat: 80, speed: 0.15, glow: 0.35 },
   loading: { hue: 260, sat: 60, speed: 0.5, glow: 0.4 },
+  sleeping: { hue: 215, sat: 40, speed: 0.06, glow: 0.18 },
   listening: { hue: 186, sat: 95, speed: 0.3, glow: 0.6 },
   thinking: { hue: 38, sat: 95, speed: 1.4, glow: 0.55 },
   speaking: { hue: 205, sat: 100, speed: 0.6, glow: 0.75 },

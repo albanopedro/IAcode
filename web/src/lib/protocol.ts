@@ -1,6 +1,6 @@
 // Messages exchanged with the JARVIS server over /ws (see backend/jarvis/server/connection.py).
 
-export type JarvisState = "idle" | "loading" | "listening" | "thinking" | "speaking";
+export type JarvisState = "idle" | "loading" | "sleeping" | "listening" | "thinking" | "speaking";
 
 export type Health = "available" | "cooldown" | "offline" | "unconfigured" | "blocked" | "unknown";
 
@@ -98,7 +98,8 @@ export type ServerEvent =
   | { type: "transcript"; text: string; stt_ms: number }
   | AnswerEvent
   | { type: "agents"; cost_mode: string; agents: AgentStatus[] }
-  | { type: "voice"; active: boolean; stt?: string; tts?: string }
+  | { type: "voice"; active: boolean; stt?: string; tts?: string; wake?: boolean }
+  | { type: "wake"; score: number }
   | { type: "stop_audio" }
   | { type: "cleared" }
   | { type: "error"; message: string; attempts?: Attempt[] }
@@ -119,7 +120,7 @@ export type TtsEngine = "say" | "piper";
 
 export type ClientMessage =
   | { type: "text"; text: string; speak?: boolean }
-  | { type: "voice_start"; tts?: TtsEngine }
+  | { type: "voice_start"; tts?: TtsEngine; wake?: boolean }
   | { type: "voice_stop" }
   | { type: "interrupt" }
   | { type: "clear" }

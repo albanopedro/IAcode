@@ -189,6 +189,12 @@ say_voice = "Luciana"
 piper_voice = "pt_BR-faber-medium"
 silence_ms = 900           # quiet time that ends your turn
 no_speech_timeout = 8      # seconds of waiting before listening again
+# Wake word ("Hey Jarvis", English pronunciation): `jarvis voice --wake` or the
+# "Ativar por Hey Jarvis" switch. openWakeWord runs locally (~9 MB of models, downloaded
+# once); the pretrained hey_jarvis model is CC BY-NC-SA 4.0 (personal use only).
+# Raise wake_threshold if it wakes up by mistake; lower it if it does not hear you.
+wake_word_model = "hey_jarvis_v0.1"
+wake_threshold = 0.5
 stop_phrases = ["tchau jarvis", "encerrar conversa", "pode parar jarvis", "desligar jarvis"]  # "xau" also works
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 — Wake word
+
+- "Hey Jarvis" com openWakeWord (local, ~9 MB): `jarvis voice --wake` ou o interruptor
+  "Ativar por Hey Jarvis" na interface.
+- Ciclo dormindo → acordado ("Sim?") → conversa → volta a dormir depois de um silêncio
+  ou de "tchau JARVIS". Enquanto dorme, nada é gravado nem enviado.
+- Estado "dormindo" no orb e no WebSocket; o modelo aparece no `jarvis doctor`.
+- Testado com áudio sintetizado: "Hey Jarvis" pontua 0,99; frases comuns em português
+  ficam abaixo de 0,02.
+
 ## 1.0.0 — Fase 9: polimento
 
 - **Segurança:**

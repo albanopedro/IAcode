@@ -18,6 +18,7 @@ export default function App() {
   const [playerBusy, setPlayerBusy] = useState(false);
   const [speakAnswers, setSpeakAnswers] = useState(false);
   const [tts, setTts] = useState<TtsEngine>("say");
+  const [wakeWord, setWakeWord] = useState(false);
   const [draft, setDraft] = useState("");
   const [micError, setMicError] = useState<string | null>(null);
 
@@ -79,7 +80,7 @@ export default function App() {
       setMicError(`Não consegui acessar o microfone (${reason}).`);
       return;
     }
-    socket.current?.send({ type: "voice_start", tts });
+    socket.current?.send({ type: "voice_start", tts, wake: wakeWord });
   }
 
   function interrupt() {
@@ -149,6 +150,15 @@ export default function App() {
             <label>
               <input type="checkbox" checked={speakAnswers} onChange={(e) => setSpeakAnswers(e.target.checked)} />
               Falar respostas escritas
+            </label>
+            <label title="O microfone fica ligado, mas nada é gravado nem enviado até você dizer “Hey Jarvis”">
+              <input
+                type="checkbox"
+                checked={wakeWord}
+                disabled={state.voiceActive}
+                onChange={(e) => setWakeWord(e.target.checked)}
+              />
+              Ativar por “Hey Jarvis”
             </label>
             <label title="Só o modelo que roda neste Mac responde; nada é enviado para a internet">
               <input

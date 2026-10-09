@@ -13,4 +13,12 @@ def build_assistant(settings: Settings, manager: AgentManager) -> Assistant:
     memory_cfg = settings.memory
     orchestrator = Orchestrator(manager, share_private_with=ShareWith(memory_cfg.share_facts_with))
     store = MemoryStore(settings.data_dir / "memory.db") if memory_cfg.enabled else None
-    return Assistant(orchestrator, store, summarize=memory_cfg.summarize, window=memory_cfg.window)
+    from jarvis.tools.factory import build_toolkit  # tools depend on the memory store
+
+    return Assistant(
+        orchestrator,
+        store,
+        summarize=memory_cfg.summarize,
+        window=memory_cfg.window,
+        tools=build_toolkit(settings, store),
+    )

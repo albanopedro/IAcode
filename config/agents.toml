@@ -205,3 +205,21 @@ enabled = true
 share_facts_with = "private"
 summarize = true
 window = 20
+
+# ---------------------------------------------------------------------------
+# Tools (Phase 7). Every call goes through policy → confirmation → limits → audit
+# (data/audit.db). See `jarvis tools list` and `jarvis tools log`.
+#   calculator, current_time                 safe, allowed
+#   wikipedia                                allowed (your query goes to wikipedia.org)
+#   fetch_url                                asks first (public sites only, no local network)
+#   add_task, list_tasks, complete_task      allowed; delete_task asks first
+#   list_dir, read_file                      only inside allowed_dirs; read_file asks first
+#   run_python                               ALWAYS asks; macOS sandbox: no files, no network
+# After a web page or file was read, any sensitive tool asks first (prompt injection guard).
+# ---------------------------------------------------------------------------
+[tools]
+enabled = true
+max_steps = 4
+max_calls_per_minute = 20
+allowed_dirs = []        # e.g. ["~/Documents/notas"]
+policies = {}            # e.g. { fetch_url = "allow", run_python = "deny" }

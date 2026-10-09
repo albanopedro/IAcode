@@ -16,8 +16,9 @@ Assistente pessoal multimodelo inspirado no JARVIS. Conversa com vários agentes
 | 3. Multi-agent: limites, ranking, health checks, persistência | ✅ |
 | 4. Voz: STT, TTS, streaming por frase, conversa contínua | ✅ |
 | 5. Interface web: orb, estados, voz no navegador, status dos agentes | ✅ |
-| 6. Memória: histórico, contexto resumido, lembranças de longo prazo | ✅ (aguardando revisão) |
-| 7–9. Tools, IA local, polimento | ⏳ |
+| 6. Memória: histórico, contexto resumido, lembranças de longo prazo | ✅ |
+| 7. Ferramentas seguras: permissões, confirmação, sandbox, auditoria | ✅ (aguardando revisão) |
+| 8–9. IA local, polimento | ⏳ |
 
 ## Como rodar (backend, texto)
 
@@ -59,6 +60,34 @@ dentro de `web/`, e abra http://127.0.0.1:5300 (o Vite repassa `/api` e `/ws`).
     outro site aberto no navegador não consegue usar o JARVIS;
   - nenhuma chave vai para o navegador;
   - mensagens têm tamanho limitado.
+
+### Ferramentas (Fase 7)
+
+Os agentes **não acessam nada diretamente**. Quando precisam de uma ferramenta, pedem
+num formato de texto fixo (funciona com qualquer agente), e o JARVIS decide.
+
+| Ferramenta | Política padrão | O que faz |
+|---|---|---|
+| `calculator`, `current_time` | permitir | Contas exatas (sem `eval`) e data/hora |
+| `wikipedia` | permitir | Busca na API oficial e gratuita da Wikipédia |
+| `fetch_url` | **confirmar** | Lê páginas públicas. Bloqueia localhost e rede local, inclusive após redirecionamentos (SSRF) |
+| `add_task`, `list_tasks`, `complete_task` | permitir | Lista de tarefas local. `delete_task` **confirma** |
+| `list_dir`, `read_file` | só dentro de `allowed_dirs` | Desligadas até você liberar uma pasta. Nunca leem `.env`, chaves SSH, `.pem` etc. `read_file` **confirma** |
+| `run_python` | **sempre confirma** | Roda na sandbox do macOS: sem seus arquivos, sem internet, sem criar processos, com limite de CPU e de tempo |
+
+Regras que valem sempre:
+- Código **sempre** pede confirmação, mesmo se a configuração disser `allow`.
+- Depois de ler conteúdo de fora (página ou arquivo), **qualquer** ferramenta sensível
+  passa a pedir confirmação. É a proteção contra prompt injection.
+- O resultado das ferramentas vai para o agente marcado como **dado não confiável**.
+- Há limite de 4 ferramentas por pergunta e de 20 por minuto, e cada ferramenta tem
+  tempo máximo e saída cortada.
+- Toda chamada fica no log de auditoria (`data/audit.db`), visível com `jarvis tools log`.
+- Para confirmar:
+  - **na web**, aparece um diálogo com a ação exata; sem resposta em 60 s, a ação é negada;
+  - **no terminal**, a pergunta "Permitir? [s/N]";
+  - **na voz pelo terminal**, as ações que pedem confirmação são negadas.
+- Configure em `[tools]` no `agents.toml`; veja tudo com `jarvis tools list`.
 
 ### Memória (Fase 6)
 

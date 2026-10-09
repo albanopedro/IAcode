@@ -61,7 +61,7 @@ def test_render_prompt_includes_history_and_current_message():
     assert "Usuário: explique Docker" in prompt
     assert "JARVIS: Docker é..." in prompt
     assert prompt.index("# Mensagem atual do usuário") < prompt.index("e no Mac?")
-    assert "não use ferramentas" in prompt
+    assert "ferramentas nativas" in prompt and "```tool```" in prompt
 
 
 def test_render_prompt_requires_a_user_message_last():

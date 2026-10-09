@@ -159,6 +159,13 @@ class Attempt(BaseModel):
     latency_ms: float = 0.0
 
 
+class ToolUse(BaseModel):
+    name: str
+    title: str
+    decision: str  # allowed / confirmed / denied_by_user / denied_by_policy / …
+    ok: bool
+
+
 class RankedAgent(BaseModel):
     agent_id: str
     score: float
@@ -169,3 +176,4 @@ class OrchestratorResult(BaseModel):
     task: TaskType
     attempts: list[Attempt] = Field(default_factory=list)
     ranking: list[RankedAgent] = Field(default_factory=list)
+    tools: list[ToolUse] = Field(default_factory=list)

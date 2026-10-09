@@ -96,12 +96,26 @@ class MemoryConfig(BaseModel):
     window: int = 20  # recent messages sent to the agent
 
 
+class ToolsConfig(BaseModel):
+    """Tools the agents may use. Every call is checked, limited and audited."""
+
+    enabled: bool = True
+    max_steps: int = 4  # tools per question
+    max_calls_per_minute: int = 20
+    # Folders the file tools may read. Empty = file tools are off.
+    allowed_dirs: list[str] = Field(default_factory=list)
+    # Per-tool policy: "allow", "confirm" or "deny" (overrides the tool's default).
+    # Tools that run code are always confirmed, even if set to "allow".
+    policies: dict[str, str] = Field(default_factory=dict)
+
+
 class Settings(BaseModel):
     cost_mode: CostMode = CostMode.FREE_ONLY
     data_dir: Path = DEFAULT_DATA_DIR
     health_interval: float = 120.0
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
     openai_compat: list[OpenAICompatConfig] = Field(default_factory=list)
 

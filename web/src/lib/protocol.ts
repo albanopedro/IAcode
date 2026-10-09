@@ -32,6 +32,24 @@ export interface Attempt {
   latency_ms: number;
 }
 
+export interface ToolUse {
+  name: string;
+  title: string;
+  decision: string;
+  ok: boolean;
+}
+
+export interface ConfirmRequest {
+  type: "confirm";
+  id: string;
+  tool: string;
+  title: string;
+  risk: "safe" | "sensitive" | "dangerous";
+  description: string;
+  reason: string;
+  timeout: number;
+}
+
 export interface AnswerEvent {
   type: "answer";
   mode: "text" | "voice";
@@ -43,6 +61,7 @@ export interface AnswerEvent {
   cost: number;
   attempts: Attempt[];
   ranking: { agent_id: string; score: number }[];
+  tools?: ToolUse[];
 }
 
 export interface HistoryMessage {
@@ -83,7 +102,10 @@ export type ServerEvent =
       messages: HistoryMessage[];
     }
   | { type: "conversations"; current?: string | null; conversations: ConversationSummary[] }
-  | { type: "facts"; enabled: boolean; facts: Fact[] };
+  | { type: "facts"; enabled: boolean; facts: Fact[] }
+  | { type: "tool"; phase: "start" | "end"; tool: string; title: string; ok?: boolean }
+  | ConfirmRequest
+  | { type: "confirm_closed"; id: string };
 
 export type TtsEngine = "say" | "piper";
 
@@ -100,6 +122,7 @@ export type ClientMessage =
   | { type: "list_facts" }
   | { type: "forget_fact"; id: number }
   | { type: "clear_facts"; confirm: true }
+  | { type: "confirm_reply"; id: string; approved: boolean }
   | { type: "status" };
 
 export function parseServerEvent(raw: string): ServerEvent | null {

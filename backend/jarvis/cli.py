@@ -105,6 +105,30 @@ def print_result(result: OrchestratorResult) -> None:
     if result.ranking:
         top = " · ".join(f"{r.agent_id} {r.score:g}" for r in result.ranking[:4])
         print(f"    ranking: {top}")
+    for use in result.tools:
+        mark = "✓" if use.ok else "✗"
+        print(f"    🔧 {mark} {use.title} ({use.decision})")
+
+
+async def cli_confirm(call, tool, reason: str) -> bool:
+    """Ask in the terminal before a tool that needs permission runs."""
+    print(f"\n⚠️  O JARVIS quer usar: {tool.describe_call(call.args)}")
+    print(f"   Motivo da confirmação: {reason}")
+    try:
+        answer = await asyncio.to_thread(input, "   Permitir? [s/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("s", "sim", "y", "yes")
+
+
+def cli_tool_context():
+    from jarvis.tools.base import ToolContext
+
+    def on_event(kind: str, data: dict) -> None:
+        if kind == "tool_start":
+            print(f"   🔧 usando {data['title']}…", flush=True)
+
+    return ToolContext(confirm=cli_confirm, on_event=on_event)
 
 
 def print_failure(error: AllAgentsFailedError) -> None:
@@ -148,7 +172,9 @@ async def cmd_unblock(agent_id: str) -> int:
 async def cmd_ask(question: str) -> int:
     manager, assistant, _ = build()
     try:
-        result = await assistant.ask(open_conversation(assistant), question)
+        result = await assistant.ask(
+            open_conversation(assistant), question, tool_context=cli_tool_context()
+        )
         print_result(result)
         return 0
     except AllAgentsFailedError as exc:
@@ -186,7 +212,9 @@ async def cmd_chat(resume: bool = False) -> int:
                 print("(nova conversa; a anterior continua no histórico)")
                 continue
             try:
-                print_result(await assistant.ask(conversation, text))
+                print_result(
+                    await assistant.ask(conversation, text, tool_context=cli_tool_context())
+                )
             except AllAgentsFailedError as exc:
                 print_failure(exc)
     finally:
@@ -234,6 +262,39 @@ def cmd_memory(action: str, value: str | None) -> int:
         store.close()
 
 
+def cmd_tools(action: str) -> int:
+    from jarvis.tools.audit import AuditLog
+    from jarvis.tools.base import Policy
+    from jarvis.tools.executor import ToolExecutor
+    from jarvis.tools.factory import all_tools
+
+    settings = load_settings()
+    if action == "list":
+        policies = {k: Policy(v) for k, v in settings.tools.policies.items()}
+        executor = ToolExecutor(all_tools(settings, _memory_store()), policies=policies)
+        print(
+            f"ferramentas {'ligadas' if settings.tools.enabled else 'DESLIGADAS'}"
+            f" · até {settings.tools.max_steps} por pergunta"
+        )
+        for tool in executor.tools.values():
+            missing = tool.available()
+            state = f"indisponível: {missing}" if missing else executor.policy(tool).value
+            print(f"  {tool.name:<14} {tool.title:<26} risco {tool.risk.name.lower():<9} {state}")
+        return 0
+    log = AuditLog(settings.data_dir / "audit.db")
+    try:
+        entries = log.recent(30)
+        if not entries:
+            print("(nenhuma ferramenta usada ainda)")
+        for e in reversed(entries):
+            when = datetime.fromtimestamp(e.at).strftime("%d/%m %H:%M:%S")
+            status = "" if e.ok is None else (" ✓" if e.ok else " ✗")
+            print(f"{when}  {e.tool:<14} {e.decision:<17}{status}  {e.args[:80]}")
+        return 0
+    finally:
+        log.close()
+
+
 def cmd_history(action: str, value: str | None) -> int:
     store = _memory_store()
     try:
@@ -274,6 +335,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     memory.add_argument("action", choices=["list", "add", "forget", "clear"])
     memory.add_argument("value", nargs="*")
+    tools = sub.add_parser("tools", help="tools: list (policies) | log (audit)")
+    tools.add_argument("action", choices=["list", "log"])
     history = sub.add_parser("history", help="saved conversations: list | show <id> | clear")
     history.add_argument("action", choices=["list", "show", "clear"])
     history.add_argument("value", nargs="?")
@@ -320,6 +383,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_memory(args.action, " ".join(args.value) or None)
     if args.command == "history":
         return cmd_history(args.action, args.value)
+    if args.command == "tools":
+        return cmd_tools(args.action)
     if args.command == "status":
         return asyncio.run(cmd_status(args.json))
     if args.command == "unblock":

@@ -54,12 +54,12 @@ class ToneTTS(TTSProvider):
         return AudioClip((0.2 * np.sin(2 * np.pi * 330 * t)).astype(np.float32), 22_050)
 
 
-def make_client(agents, *, stt_texts=(), tmp_path=None, memory=None):
+def make_client(agents, *, stt_texts=(), tmp_path=None, memory=None, tools=None):
     settings = Settings(data_dir=tmp_path) if tmp_path else Settings()
     manager = AgentManager(agents, CostGuard(), clock=FakeClock())
     tts = ToneTTS()
     voice = VoiceEngines(ScriptedSTT(stt_texts), {"say": tts, "piper": tts})
-    assistant = Assistant(Orchestrator(manager), memory, summarize=False)
+    assistant = Assistant(Orchestrator(manager), memory, summarize=False, tools=tools)
     runtime = JarvisRuntime(settings, manager, assistant, voice=voice)
     return TestClient(create_app(runtime, web_dist=None)), tts
 
@@ -312,3 +312,38 @@ def test_facts_are_managed_from_the_interface():
         ws.send_json({"type": "forget_fact", "id": "1; DROP TABLE facts"})
         receive_until(ws, is_type("error"))
     assert agent.calls == []
+
+
+# -- tool confirmations over WebSocket --------------------------------------------------
+
+
+def _toolkit():
+    from jarvis.tools.base import Policy
+    from jarvis.tools.builtin.basic import CalculatorTool
+    from jarvis.tools.executor import ToolExecutor
+    from jarvis.tools.toolkit import ToolKit
+
+    calculator = CalculatorTool()
+    return ToolKit(ToolExecutor([calculator], policies={"calculator": Policy.CONFIRM}))
+
+
+CALL = '```tool\n{"name": "calculator", "args": {"expression": "6 * 7"}}\n```'
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_tool_confirmation_in_the_browser(approved):
+    agent = FakeAgent("a", [CALL, "Pronto."])
+    client, _ = make_client([agent], tools=_toolkit())
+    with client, connect(client) as ws:
+        receive_until(ws, is_type("state", state="idle"))
+        ws.send_json({"type": "text", "text": "quanto é 6 vezes 7?"})
+        confirm = receive_until(ws, is_type("confirm"))[-1]
+        assert confirm["tool"] == "calculator" and "6 * 7" in confirm["description"]
+        ws.send_json({"type": "confirm_reply", "id": confirm["id"], "approved": approved})
+        seen = receive_until(ws, is_type("answer"))
+        answer = seen[-1]
+        assert answer["tools"][0]["decision"] == ("confirmed" if approved else "denied_by_user")
+        assert any(is_type("confirm_closed")(m) for m in seen)
+        assert any(is_type("tool", phase="end")(m) for m in seen)
+    tool_result = agent.calls[1].messages[-1].content
+    assert ("42" in tool_result) is approved

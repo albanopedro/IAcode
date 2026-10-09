@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 
+from jarvis.core.classifier import classify
 from jarvis.core.conversation import DEFAULT_WINDOW, Conversation
+from jarvis.core.errors import AllAgentsFailedError
 from jarvis.core.orchestrator import Orchestrator
 from jarvis.core.types import AIResponse, OrchestratorResult, TaskType
 from jarvis.memory.commands import CommandKind, MemoryCommand, parse
@@ -50,15 +52,22 @@ class Assistant:
         *,
         summarize: bool = True,
         window: int = DEFAULT_WINDOW,
+        tools=None,  # jarvis.tools.toolkit.ToolKit (optional)
     ) -> None:
         self.orchestrator = orchestrator
         self.memory = memory
+        self.tools = tools
         self.summarize = summarize
         self.window = window
         self._background: set[asyncio.Task] = set()
 
     async def ask(
-        self, conversation: Conversation, text: str, *, style: str | None = None
+        self,
+        conversation: Conversation,
+        text: str,
+        *,
+        style: str | None = None,
+        tool_context=None,  # jarvis.tools.base.ToolContext: how to confirm, UI events
     ) -> OrchestratorResult:
         text = text.strip()
         if self.memory is not None and (command := parse(text)):
@@ -67,15 +76,39 @@ class Assistant:
         private = None
         if self.memory is not None:
             private = facts_section(relevant_facts(self.memory.facts(), text))
-        result = await self.orchestrator.ask(
-            conversation, text, style=style, private_context=private
-        )
+        if self.tools is not None and self.tools.prompt() is not None:
+            result = await self._ask_with_tools(conversation, text, style, private, tool_context)
+        else:
+            result = await self.orchestrator.ask(
+                conversation, text, style=style, private_context=private
+            )
         if self.summarize:
             task = asyncio.create_task(
                 maybe_summarize(self.orchestrator, conversation, window=self.window)
             )
             self._background.add(task)
             task.add_done_callback(self._background.discard)
+        return result
+
+    async def _ask_with_tools(self, conversation, text, style, private, tool_context):
+        from jarvis.tools.base import ToolContext
+
+        ctx = tool_context or ToolContext()
+        ctx.conversation_id = conversation.id
+        conversation.add_user(text)
+        try:
+            result = await self.tools.run(
+                self.orchestrator,
+                conversation.context(self.window),
+                classify(text),
+                style=style,
+                private_context=private,
+                ctx=ctx,
+            )
+        except AllAgentsFailedError:
+            conversation.drop_last_user()
+            raise
+        conversation.add_assistant(result.response.text, result.response.agent_id)
         return result
 
     async def wait_background(self) -> None:

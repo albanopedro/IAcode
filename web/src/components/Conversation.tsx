@@ -45,6 +45,17 @@ export function Conversation({ entries }: { entries: ChatEntry[] }) {
             )}
           </header>
           <p>{entry.text}</p>
+          {entry.tools && entry.tools.length > 0 && (
+            <ul className="tools-used" aria-label="Ferramentas usadas">
+              {entry.tools.map((t, i) => (
+                <li key={i} className={t.ok ? "ok" : "failed"} title={t.decision}>
+                  🔧 {t.title}
+                  {t.decision === "denied_by_user" && " · negada por você"}
+                  {t.decision === "confirmed" && " · autorizada"}
+                </li>
+              ))}
+            </ul>
+          )}
           {entry.attempts && entry.attempts.some((a) => !a.ok) && (
             <details>
               <summary>

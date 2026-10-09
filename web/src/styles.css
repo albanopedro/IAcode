@@ -574,3 +574,89 @@ button.link:hover:not(:disabled) {
   background: rgba(181, 140, 255, 0.14);
   color: #c9b0ff;
 }
+
+.tool-running {
+  margin: 0;
+  font-size: 13px;
+  color: var(--warn);
+}
+
+.tools-used {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.tools-used li {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 181, 71, 0.12);
+  color: var(--warn);
+}
+
+.tools-used li.failed {
+  background: rgba(255, 92, 122, 0.1);
+  color: var(--danger);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 12, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 10;
+}
+
+.modal {
+  width: min(520px, 100%);
+  padding: 20px;
+  border-radius: var(--radius);
+  background: #0a1726;
+  border: 1px solid var(--warn);
+  box-shadow: 0 0 40px rgba(255, 181, 71, 0.15);
+}
+
+.modal.risk-dangerous {
+  border-color: var(--danger);
+  box-shadow: 0 0 40px rgba(255, 92, 122, 0.2);
+}
+
+.modal h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.modal pre {
+  margin: 0;
+  padding: 10px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+
+.modal .reason,
+.modal .countdown {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+button.approve {
+  border-color: var(--warn);
+  background: rgba(255, 181, 71, 0.16);
+}

@@ -44,8 +44,9 @@ def render_prompt(messages: list[Message]) -> str:
         current.content,
         "",
         "Responda apenas à mensagem atual, levando em conta a conversa acima. "
-        "Responda diretamente com texto: não use ferramentas, não leia arquivos e "
-        "não execute comandos.",
+        "Não use as ferramentas nativas do seu ambiente (shell, leitura de arquivos, web): "
+        "elas estão bloqueadas. Se as instruções acima listarem ferramentas do JARVIS, use-as "
+        "exatamente no formato ```tool``` indicado; caso contrário, responda com texto.",
     ]
     return "\n".join(parts)
 

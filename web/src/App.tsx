@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { AgentPanel } from "./components/AgentPanel";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { Conversation } from "./components/Conversation";
 import { HistoryBar } from "./components/HistoryBar";
 import { MemoryPanel } from "./components/MemoryPanel";
@@ -117,6 +118,7 @@ export default function App() {
             {label}
           </p>
           {state.voiceActive && state.voiceEngines && <p className="engines">{state.voiceEngines}</p>}
+          {state.activeTool && <p className="tool-running">🔧 usando {state.activeTool}…</p>}
 
           <div className="voice-controls">
             <button
@@ -200,6 +202,16 @@ export default function App() {
           />
         </div>
       </main>
+
+      {state.confirms[0] && (
+        <ConfirmDialog
+          key={state.confirms[0].id}
+          request={state.confirms[0]}
+          onAnswer={(approved) =>
+            socket.current?.send({ type: "confirm_reply", id: state.confirms[0].id, approved })
+          }
+        />
+      )}
     </div>
   );
 }

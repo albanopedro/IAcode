@@ -97,6 +97,47 @@ describe("memory events", () => {
   });
 });
 
+describe("tool events", () => {
+  it("tracks the running tool and pending confirmations", () => {
+    const confirm = {
+      type: "confirm" as const,
+      id: "k1",
+      tool: "run_python",
+      title: "Executar Python (sandbox)",
+      risk: "dangerous" as const,
+      description: "print(1)",
+      reason: "executa código",
+      timeout: 60,
+    };
+    let state = apply(initialState, { type: "tool", phase: "start", tool: "calculator", title: "Calculadora" });
+    expect(state.activeTool).toBe("Calculadora");
+    state = apply(state, confirm, confirm);
+    expect(state.confirms).toHaveLength(1);
+    state = apply(state, { type: "confirm_closed", id: "k1" });
+    expect(state.confirms).toHaveLength(0);
+    state = reducer(apply(state, confirm), { kind: "connection", status: "closed" });
+    expect(state.confirms).toHaveLength(0); // a dropped connection cancels pending questions
+  });
+
+  it("keeps the tools used by an answer", () => {
+    const state = apply(initialState, {
+      type: "answer",
+      mode: "text",
+      text: "42",
+      agent_id: "a",
+      model: "m",
+      task: "math",
+      latency_ms: 10,
+      cost: 0,
+      attempts: [],
+      ranking: [],
+      tools: [{ name: "calculator", title: "Calculadora", decision: "allowed", ok: true }],
+    });
+    expect(state.entries[0].tools?.[0].title).toBe("Calculadora");
+    expect(state.activeTool).toBeNull();
+  });
+});
+
 describe("parseServerEvent", () => {
   it("rejects garbage", () => {
     expect(parseServerEvent("nope")).toBeNull();

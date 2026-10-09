@@ -11,12 +11,14 @@ Client → server (JSON text messages, plus binary microphone audio):
     {"type": "list_conversations"}                     saved conversations
     {"type": "list_facts"} / {"type": "forget_fact", "id": 1}
     {"type": "clear_facts", "confirm": true}           forget every long-term fact
+    {"type": "confirm_reply", "id": "...", "approved": true}   answer a tool confirmation
     {"type": "status"}                                 ask for the agents' status
     <binary> PCM16 mono 16 kHz frames while the voice loop runs
 
 Server → client (JSON), plus binary WAV messages with JARVIS's voice:
     hello · state · transcript · answer · agents · stop_audio · cleared · error
     history (the open conversation) · conversations · facts
+    tool (a tool started/finished) · confirm / confirm_closed (a tool needs your OK)
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import uuid
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -36,6 +39,7 @@ from jarvis.server.ws_audio import QueueAudioSource, WebSocketSink
 from jarvis.voice.session import Phase, VoiceSession
 
 MAX_TEXT = 4000
+CONFIRM_TIMEOUT = 60  # seconds to answer a confirmation in the browser
 MAX_JSON_BYTES = 16 * 1024
 
 
@@ -52,6 +56,7 @@ def answer_event(result: OrchestratorResult, mode: str) -> dict[str, Any]:
         "cost": response.cost or 0,
         "attempts": [a.model_dump() for a in result.attempts],
         "ranking": [r.model_dump() for r in result.ranking[:5]],
+        "tools": [t.model_dump() for t in result.tools],
     }
 
 
@@ -82,15 +87,21 @@ def history_event(conversation: Conversation) -> dict[str, Any]:
 
 
 class _LockedOrchestrator:
-    """Text and voice share one conversation: never answer two messages at once."""
+    """Text and voice share one conversation: never answer two messages at once.
 
-    def __init__(self, orchestrator, lock: asyncio.Lock) -> None:
-        self._orchestrator = orchestrator
+    Also gives every request a tool context whose confirmations go to the browser.
+    """
+
+    def __init__(self, assistant, lock: asyncio.Lock, tool_context) -> None:
+        self._assistant = assistant
         self._lock = lock
+        self._tool_context = tool_context
 
     async def ask(self, conversation, text, *, style=None):
         async with self._lock:
-            return await self._orchestrator.ask(conversation, text, style=style)
+            return await self._assistant.ask(
+                conversation, text, style=style, tool_context=self._tool_context()
+            )
 
 
 class Connection:
@@ -106,7 +117,10 @@ class Connection:
         self.voice_session: VoiceSession | None = None
         self.source = QueueAudioSource()
         self.sink = WebSocketSink(self._send_audio)
-        self.orchestrator = _LockedOrchestrator(runtime.assistant, asyncio.Lock())
+        self.orchestrator = _LockedOrchestrator(
+            runtime.assistant, asyncio.Lock(), self._tool_context
+        )
+        self.pending_confirms: dict[str, asyncio.Future] = {}
         self.outbox: asyncio.Queue[dict | bytes] = asyncio.Queue()
         self.voice_task: asyncio.Task | None = None
         self.tasks: set[asyncio.Task] = set()
@@ -232,10 +246,50 @@ class Connection:
             if memory and message.get("confirm") is True:
                 memory.delete_all_facts()
                 self._emit_memory()
+        elif kind == "confirm_reply":
+            future = self.pending_confirms.pop(str(message.get("id")), None)
+            if future is not None and not future.done():
+                future.set_result(message.get("approved") is True)
         elif kind == "status":
             self.emit(agents_event(self.runtime))
         else:
             self.emit({"type": "error", "message": f"tipo desconhecido: {kind}"})
+
+    # -- tools --------------------------------------------------------------------
+
+    def _tool_context(self):
+        from jarvis.tools.base import ToolContext
+
+        def on_event(kind: str, data: dict) -> None:
+            if kind in ("tool_start", "tool_end"):
+                self.emit({"type": "tool", "phase": kind.removeprefix("tool_"), **data})
+
+        return ToolContext(confirm=self._confirm, on_event=on_event)
+
+    async def _confirm(self, call, tool, reason: str) -> bool:
+        """Ask the browser; no answer within the time limit means NO."""
+        confirm_id = uuid.uuid4().hex
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self.pending_confirms[confirm_id] = future
+        self.emit(
+            {
+                "type": "confirm",
+                "id": confirm_id,
+                "tool": tool.name,
+                "title": tool.title,
+                "risk": tool.risk.name.lower(),
+                "description": tool.describe_call(call.args),
+                "reason": reason,
+                "timeout": CONFIRM_TIMEOUT,
+            }
+        )
+        try:
+            return await asyncio.wait_for(future, CONFIRM_TIMEOUT)
+        except TimeoutError:
+            return False
+        finally:
+            self.pending_confirms.pop(confirm_id, None)
+            self.emit({"type": "confirm_closed", "id": confirm_id})
 
     # -- memory -------------------------------------------------------------------
 

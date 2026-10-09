@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at      REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages (conversation_id, id);
+CREATE TABLE IF NOT EXISTS tasks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    text       TEXT NOT NULL,
+    done       INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    done_at    REAL
+);
 CREATE TABLE IF NOT EXISTS facts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     text       TEXT NOT NULL,
@@ -54,6 +61,15 @@ class Fact:
     id: int
     text: str
     created_at: float
+
+
+@dataclass(frozen=True)
+class Task:
+    id: int
+    text: str
+    done: bool
+    created_at: float
+    done_at: float | None
 
 
 @dataclass(frozen=True)
@@ -209,6 +225,31 @@ class MemoryStore:
 
     def delete_all_facts(self) -> int:
         return self._write("DELETE FROM facts").rowcount
+
+    # -- tasks --------------------------------------------------------------------
+
+    def add_task(self, text: str) -> Task:
+        text = " ".join(text.split())[:MAX_FACT_CHARS]
+        now = time.time()
+        cursor = self._write("INSERT INTO tasks (text, created_at) VALUES (?, ?)", (text, now))
+        return Task(cursor.lastrowid, text, False, now, None)
+
+    def tasks(self, *, include_done: bool = False) -> list[Task]:
+        where = "" if include_done else "WHERE done = 0"
+        rows = self._read(
+            f"SELECT id, text, done, created_at, done_at FROM tasks {where} ORDER BY id"
+        )
+        return [Task(r[0], r[1], bool(r[2]), r[3], r[4]) for r in rows]
+
+    def complete_task(self, task_id: int) -> bool:
+        cursor = self._write(
+            "UPDATE tasks SET done = 1, done_at = ? WHERE id = ? AND done = 0",
+            (time.time(), task_id),
+        )
+        return cursor.rowcount > 0
+
+    def delete_task(self, task_id: int) -> bool:
+        return self._write("DELETE FROM tasks WHERE id = ?", (task_id,)).rowcount > 0
 
     def close(self) -> None:
         with self._lock:

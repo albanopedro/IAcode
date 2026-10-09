@@ -78,3 +78,18 @@ def test_project_config_declares_limits_and_groups(tmp_path):
 def test_data_dir_can_be_set_from_the_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_DATA_DIR", str(tmp_path / "data"))
     assert load_settings(DEFAULT_CONFIG, tmp_path / "x.env").data_dir == tmp_path / "data"
+
+
+def test_project_config_wires_memory_and_tools_into_the_assistant(tmp_path):
+    from jarvis.core.agent_manager import AgentManager
+    from jarvis.core.cost_guard import CostGuard
+    from jarvis.memory.factory import build_assistant
+
+    settings = load_settings(DEFAULT_CONFIG, tmp_path / "x.env")
+    settings.data_dir = tmp_path
+    assistant = build_assistant(settings, AgentManager([], CostGuard()))
+    assert assistant.memory is not None
+    assert assistant.tools is not None
+    prompt = assistant.tools.prompt()
+    assert "calculator" in prompt and "```tool" in prompt
+    assert "read_file" not in prompt  # no allowed_dirs configured: file tools are not offered

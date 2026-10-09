@@ -2,10 +2,12 @@
 import type {
   AgentStatus,
   Attempt,
+  ConfirmRequest,
   ConversationSummary,
   Fact,
   JarvisState,
   ServerEvent,
+  ToolUse,
 } from "./protocol";
 
 export type Connection = "connecting" | "open" | "closed";
@@ -19,6 +21,7 @@ export interface ChatEntry {
   task?: string;
   latencyMs?: number;
   attempts?: Attempt[];
+  tools?: ToolUse[];
 }
 
 export interface UiState {
@@ -40,6 +43,8 @@ export interface UiState {
   conversations: ConversationSummary[];
   memoryEnabled: boolean;
   facts: Fact[];
+  activeTool: string | null;
+  confirms: ConfirmRequest[];
 }
 
 export const initialState: UiState = {
@@ -61,6 +66,8 @@ export const initialState: UiState = {
   conversations: [],
   memoryEnabled: false,
   facts: [],
+  activeTool: null,
+  confirms: [],
 };
 
 export type Action =
@@ -79,7 +86,9 @@ export function reducer(state: UiState, action: Action): UiState {
   if (action.kind === "connection") {
     const next = { ...state, connection: action.status };
     // A dropped connection ends any voice loop on the server side.
-    return action.status === "open" ? next : { ...next, voiceActive: false, serverState: "idle" };
+    return action.status === "open"
+      ? next
+      : { ...next, voiceActive: false, serverState: "idle", confirms: [], activeTool: null };
   }
   if (action.kind === "user") {
     return addEntry(state, { role: "user", text: action.text, mode: "text" });
@@ -108,8 +117,10 @@ export function reducer(state: UiState, action: Action): UiState {
           task: event.task,
           latencyMs: event.latency_ms,
           attempts: event.attempts,
+          tools: event.tools,
         }),
         currentAgentId: event.agent_id,
+        activeTool: null,
       };
     case "agents":
       return { ...state, agents: event.agents, costMode: event.cost_mode };
@@ -151,6 +162,12 @@ export function reducer(state: UiState, action: Action): UiState {
       return { ...state, conversations: event.conversations };
     case "facts":
       return { ...state, memoryEnabled: event.enabled, facts: event.facts };
+    case "tool":
+      return { ...state, activeTool: event.phase === "start" ? event.title : null };
+    case "confirm":
+      return { ...state, confirms: [...state.confirms.filter((c) => c.id !== event.id), event] };
+    case "confirm_closed":
+      return { ...state, confirms: state.confirms.filter((c) => c.id !== event.id) };
     case "stop_audio":
       return state;
   }

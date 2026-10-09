@@ -169,11 +169,14 @@ async def cmd_unblock(agent_id: str) -> int:
         await manager.close()
 
 
-async def cmd_ask(question: str) -> int:
+async def cmd_ask(question: str, local_only: bool = False) -> int:
     manager, assistant, _ = build()
     try:
         result = await assistant.ask(
-            open_conversation(assistant), question, tool_context=cli_tool_context()
+            open_conversation(assistant),
+            question,
+            tool_context=cli_tool_context(),
+            local_only=local_only,
         )
         print_result(result)
         return 0
@@ -184,13 +187,15 @@ async def cmd_ask(question: str) -> int:
         await shutdown(manager, assistant)
 
 
-async def cmd_chat(resume: bool = False) -> int:
+async def cmd_chat(resume: bool = False, local_only: bool = False) -> int:
     manager, assistant, interval = build()
     conversation = open_conversation(assistant, resume)
     monitor = HealthMonitor(manager, interval)
     monitor.start()
     if conversation.turns:
         print(f"Continuando: {conversation.title} ({len(conversation.turns)} mensagens)")
+    if local_only:
+        print("🔒 Modo só local: nada sai deste Mac (só o modelo local responde).")
     print("JARVIS pronto. Comandos: /status, /limpar, /sair\n")
     try:
         while True:
@@ -213,7 +218,12 @@ async def cmd_chat(resume: bool = False) -> int:
                 continue
             try:
                 print_result(
-                    await assistant.ask(conversation, text, tool_context=cli_tool_context())
+                    await assistant.ask(
+                        conversation,
+                        text,
+                        tool_context=cli_tool_context(),
+                        local_only=local_only,
+                    )
                 )
             except AllAgentsFailedError as exc:
                 print_failure(exc)
@@ -260,6 +270,39 @@ def cmd_memory(action: str, value: str | None) -> int:
         return 0
     finally:
         store.close()
+
+
+def cmd_local(action: str) -> int:
+    from jarvis.agents.local.mlx import LocalModelStore, mlx_available
+
+    settings = load_settings()
+    repo = settings.local.model
+    store = LocalModelStore(settings.data_dir / "models" / "mlx")
+    if action == "status":
+        print(f"modelo: {repo}")
+        print(f"MLX: {mlx_available() or 'ok'}")
+        if store.is_downloaded(repo):
+            print(f"baixado: sim ({store.size_bytes(repo) / 1e9:.2f} GB em {store.path(repo)})")
+        else:
+            print("baixado: não (rode: jarvis local download)")
+        print(f"ativo no JARVIS: {'sim' if settings.local.enabled else 'não ([local] enabled)'}")
+        return 0
+    if action == "download":
+        if (reason := mlx_available()) is not None:
+            print(reason)
+            return 2
+        if store.is_downloaded(repo):
+            print("o modelo já está baixado")
+            return 0
+        print(f"Baixando {repo} do Hugging Face (gratuito, sem conta)…")
+        path = store.download(repo)
+        print(f"pronto: {store.size_bytes(repo) / 1e9:.2f} GB em {path}")
+        return 0
+    if not _confirm(f"Apagar o modelo local {repo} do disco?"):
+        print("cancelado")
+        return 1
+    print("apagado" if store.remove(repo) else "não estava baixado")
+    return 0
 
 
 def cmd_tools(action: str) -> int:
@@ -328,8 +371,12 @@ def main(argv: list[str] | None = None) -> int:
     status.add_argument("--json", action="store_true", help="machine-readable output")
     ask = sub.add_parser("ask", help="ask one question")
     ask.add_argument("question", nargs="+")
+    ask.add_argument("--local", action="store_true", help="only the local model (nothing leaves)")
     chat = sub.add_parser("chat", help="start a conversation")
     chat.add_argument("--continue", dest="resume", action="store_true", help="resume the last one")
+    chat.add_argument("--local", action="store_true", help="only the local model (nothing leaves)")
+    local = sub.add_parser("local", help="offline model: status | download | remove")
+    local.add_argument("action", choices=["status", "download", "remove"])
     memory = sub.add_parser(
         "memory", help="long-term memory: list | add <text> | forget <id> | clear"
     )
@@ -385,13 +432,15 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_history(args.action, args.value)
     if args.command == "tools":
         return cmd_tools(args.action)
+    if args.command == "local":
+        return cmd_local(args.action)
     if args.command == "status":
         return asyncio.run(cmd_status(args.json))
     if args.command == "unblock":
         return asyncio.run(cmd_unblock(args.agent_id))
     if args.command == "ask":
-        return asyncio.run(cmd_ask(" ".join(args.question)))
-    return asyncio.run(cmd_chat(args.resume))
+        return asyncio.run(cmd_ask(" ".join(args.question), args.local))
+    return asyncio.run(cmd_chat(args.resume, args.local))
 
 
 if __name__ == "__main__":

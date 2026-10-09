@@ -347,3 +347,25 @@ def test_tool_confirmation_in_the_browser(approved):
         assert any(is_type("tool", phase="end")(m) for m in seen)
     tool_result = agent.calls[1].messages[-1].content
     assert ("42" in tool_result) is approved
+
+
+def test_local_only_switch_keeps_messages_on_this_mac():
+    from jarvis.core.types import CostClass, Privacy
+
+    local = FakeAgent("local", ["resposta local"], priority=10, privacy=Privacy.LOCAL)
+    local.info = local.info.model_copy(update={"is_local": True, "cost_class": CostClass.LOCAL})
+    online = FakeAgent("online", ["resposta online"], priority=90)
+    client, _ = make_client([local, online])
+    with client, connect(client) as ws:
+        hello = receive_until(ws, is_type("state", state="idle"))[0]
+        assert hello["local_only"] is False
+        ws.send_json({"type": "set_local_only", "value": True})
+        assert receive_until(ws, is_type("local_only"))[-1]["value"] is True
+        ws.send_json({"type": "text", "text": "segredo"})
+        assert receive_until(ws, is_type("answer"))[-1]["agent_id"] == "local"
+        ws.send_json({"type": "set_local_only", "value": False})
+        receive_until(ws, is_type("local_only"))
+        ws.send_json({"type": "text", "text": "pergunta comum"})
+        assert receive_until(ws, is_type("answer"))[-1]["agent_id"] == "online"
+    assert [m.content for m in online.calls[0].messages if m.role == "user"][-1] == "pergunta comum"
+    assert all("segredo" not in m.content for m in online.calls[0].messages)

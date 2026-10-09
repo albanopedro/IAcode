@@ -660,3 +660,8 @@ button.approve {
   border-color: var(--warn);
   background: rgba(255, 181, 71, 0.16);
 }
+
+.tag.private {
+  background: rgba(62, 230, 160, 0.12);
+  color: var(--ok);
+}

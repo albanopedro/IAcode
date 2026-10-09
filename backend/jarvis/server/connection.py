@@ -12,6 +12,7 @@ Client → server (JSON text messages, plus binary microphone audio):
     {"type": "list_facts"} / {"type": "forget_fact", "id": 1}
     {"type": "clear_facts", "confirm": true}           forget every long-term fact
     {"type": "confirm_reply", "id": "...", "approved": true}   answer a tool confirmation
+    {"type": "set_local_only", "value": true}          only local models answer (nothing leaves)
     {"type": "status"}                                 ask for the agents' status
     <binary> PCM16 mono 16 kHz frames while the voice loop runs
 
@@ -80,6 +81,7 @@ def history_event(conversation: Conversation) -> dict[str, Any]:
                 "text": turn.message.content,
                 "agent_id": turn.agent_id,
                 "created_at": turn.created_at,
+                "private": turn.private,
             }
             for turn in conversation.turns
         ],
@@ -92,15 +94,20 @@ class _LockedOrchestrator:
     Also gives every request a tool context whose confirmations go to the browser.
     """
 
-    def __init__(self, assistant, lock: asyncio.Lock, tool_context) -> None:
+    def __init__(self, assistant, lock: asyncio.Lock, tool_context, local_only) -> None:
         self._assistant = assistant
         self._lock = lock
         self._tool_context = tool_context
+        self._local_only = local_only
 
     async def ask(self, conversation, text, *, style=None):
         async with self._lock:
             return await self._assistant.ask(
-                conversation, text, style=style, tool_context=self._tool_context()
+                conversation,
+                text,
+                style=style,
+                tool_context=self._tool_context(),
+                local_only=self._local_only(),
             )
 
 
@@ -117,8 +124,9 @@ class Connection:
         self.voice_session: VoiceSession | None = None
         self.source = QueueAudioSource()
         self.sink = WebSocketSink(self._send_audio)
+        self.local_only = False  # "só local": only models running on this Mac answer
         self.orchestrator = _LockedOrchestrator(
-            runtime.assistant, asyncio.Lock(), self._tool_context
+            runtime.assistant, asyncio.Lock(), self._tool_context, lambda: self.local_only
         )
         self.pending_confirms: dict[str, asyncio.Future] = {}
         self.outbox: asyncio.Queue[dict | bytes] = asyncio.Queue()
@@ -154,6 +162,7 @@ class Connection:
                 "voice_ready": self.runtime.voice_ready,
                 "tts_engine": self.runtime.settings.voice.tts_engine,
                 "max_text": MAX_TEXT,
+                "local_only": self.local_only,
             }
         )
         self.emit(agents_event(self.runtime))
@@ -246,6 +255,9 @@ class Connection:
             if memory and message.get("confirm") is True:
                 memory.delete_all_facts()
                 self._emit_memory()
+        elif kind == "set_local_only":
+            self.local_only = message.get("value") is True
+            self.emit({"type": "local_only", "value": self.local_only})
         elif kind == "confirm_reply":
             future = self.pending_confirms.pop(str(message.get("id")), None)
             if future is not None and not future.done():

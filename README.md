@@ -17,8 +17,9 @@ Assistente pessoal multimodelo inspirado no JARVIS. Conversa com vários agentes
 | 4. Voz: STT, TTS, streaming por frase, conversa contínua | ✅ |
 | 5. Interface web: orb, estados, voz no navegador, status dos agentes | ✅ |
 | 6. Memória: histórico, contexto resumido, lembranças de longo prazo | ✅ |
-| 7. Ferramentas seguras: permissões, confirmação, sandbox, auditoria | ✅ (aguardando revisão) |
-| 8–9. IA local, polimento | ⏳ |
+| 7. Ferramentas seguras: permissões, confirmação, sandbox, auditoria | ✅ |
+| 8. IA local: modelo offline (MLX) e modo "só local" | ✅ (aguardando revisão) |
+| 9. Polimento | ⏳ |
 
 ## Como rodar (backend, texto)
 
@@ -60,6 +61,31 @@ dentro de `web/`, e abra http://127.0.0.1:5300 (o Vite repassa `/api` e `/ws`).
     outro site aberto no navegador não consegue usar o JARVIS;
   - nenhuma chave vai para o navegador;
   - mensagens têm tamanho limitado.
+
+### IA local (Fase 8)
+
+```bash
+cd backend && .venv/bin/pip install -e ".[local]"   # MLX-LM (Apple Silicon)
+.venv/bin/python -m jarvis local download             # uma vez: ~2,3 GB (Apache-2.0)
+.venv/bin/python -m jarvis ask --local "…"            # só o modelo local responde
+.venv/bin/python -m jarvis local status | remove
+```
+
+- **Modelo:** `Qwen3-4B-Instruct-2507` em 4 bits, via **MLX-LM**, que roda no chip do
+  Mac. Fica em `data/models/mlx`.
+- **Fallback offline automático:** os agentes online gratuitos têm prioridade. Sem
+  internet, ou com as cotas esgotadas, o modelo local assume sozinho.
+- **Modo "só local"** (`--local` na CLI ou o interruptor 🔒 na interface): só o modelo
+  do Mac responde.
+  - As mensagens trocadas nesse modo ficam **marcadas como privadas**.
+  - Elas nunca entram no contexto de uma pergunta feita depois a um agente online,
+    nem nos resumos automáticos.
+  - Testado: um agente online respondeu "não sei" sobre um dado dito no modo local.
+- **Servidor local travado:** só em `127.0.0.1`, numa porta aleatória, sem aceitar
+  páginas web (o padrão do MLX aceitaria qualquer site) e com o Hugging Face em modo
+  offline.
+  - Ele carrega o modelo só no primeiro uso, a primeira resposta leva cerca de 9 s.
+  - Depois de 10 minutos parado, ele se desliga e devolve os cerca de 3 GB de RAM.
 
 ### Ferramentas (Fase 7)
 

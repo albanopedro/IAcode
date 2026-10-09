@@ -78,13 +78,21 @@ class Orchestrator:
         *,
         style: str | None = None,
         private_context: str | None = None,
+        local_only: bool = False,
     ) -> OrchestratorResult:
-        """Stateless: rank the free agents and try them in order until one answers."""
+        """Stateless: rank the free agents and try them in order until one answers.
+
+        ``local_only`` restricts the choice to agents running on this machine, so the
+        message never leaves it (offline or private mode).
+        """
         await self.manager.refresh_health()
         # Rank with the largest possible prompt, so the context-window check is safe.
         extra = "\n\n".join(p for p in (self.system_prompt, private_context, style) if p)
         largest = AIRequest(messages=[Message(role="system", content=extra), *messages], task=task)
-        ranked = self.router.rank(self.manager.candidates(largest.required), task, largest)
+        candidates = self.manager.candidates(largest.required)
+        if local_only:
+            candidates = [p for p in candidates if p.info.is_local]
+        ranked = self.router.rank(candidates, task, largest)
         ranking = [
             RankedAgent(agent_id=p.id, score=round(self.router.score(p, task), 1)) for p in ranked
         ]
@@ -116,6 +124,10 @@ class Orchestrator:
             )
 
         if not ranked:
+            if local_only:
+                raise AllAgentsFailedError(
+                    "no local agent is available (download one: jarvis local download)", attempts
+                )
             raise AllAgentsFailedError("no free agent is available right now", attempts)
         raise AllAgentsFailedError(f"all {len(attempts)} agents failed", attempts)
 
@@ -126,22 +138,26 @@ class Orchestrator:
         *,
         style: str | None = None,
         private_context: str | None = None,
+        local_only: bool = False,
     ) -> OrchestratorResult:
         """Answer ``text`` inside ``conversation``. ``style`` adds per-channel instructions."""
         text = text.strip()
         if not text:
             raise ValueError("empty message")
-        conversation.add_user(text)
+        conversation.add_user(text, private=local_only)
         try:
             result = await self.complete(
-                conversation.context(),
+                conversation.context(include_private=local_only),
                 classify(text),
                 style=style,
                 private_context=private_context,
+                local_only=local_only,
             )
         except AllAgentsFailedError:
             # Nobody answered: forget the message so a retry does not duplicate it.
             conversation.drop_last_user()
             raise
-        conversation.add_assistant(result.response.text, result.response.agent_id)
+        conversation.add_assistant(
+            result.response.text, result.response.agent_id, private=local_only
+        )
         return result

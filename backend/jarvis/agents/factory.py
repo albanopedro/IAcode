@@ -30,6 +30,21 @@ def build_agents(settings: Settings) -> list[AIProvider]:
                 )
             )
 
+    if settings.local.enabled:
+        from jarvis.agents.local.mlx import LocalMLXAgent, LocalModelStore
+
+        local = settings.local
+        agents.append(
+            LocalMLXAgent(
+                local.model,
+                LocalModelStore(settings.data_dir / "models" / "mlx"),
+                priority=local.priority,
+                context_window=local.context_window,
+                max_tokens=local.max_tokens,
+                idle_minutes=local.idle_minutes,
+            )
+        )
+
     for cfg in settings.openai_compat:
         if not cfg.enabled:
             continue

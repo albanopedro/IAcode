@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS messages (
     role            TEXT NOT NULL,
     content         TEXT NOT NULL,
     agent_id        TEXT,
-    created_at      REAL NOT NULL
+    created_at      REAL NOT NULL,
+    private         INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages (conversation_id, id);
 CREATE TABLE IF NOT EXISTS tasks (
@@ -90,6 +91,11 @@ class MemoryStore:
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(SCHEMA)
+            columns = {row[1] for row in self._db.execute("PRAGMA table_info(messages)")}
+            if "private" not in columns:  # databases created before Phase 8
+                self._db.execute(
+                    "ALTER TABLE messages ADD COLUMN private INTEGER NOT NULL DEFAULT 0"
+                )
 
     def _write(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         with self._lock, self._db:
@@ -118,13 +124,13 @@ class MemoryStore:
             return None
         title, summary, summarized = rows[0]
         messages = self._read(
-            "SELECT role, content, agent_id, created_at FROM messages "
+            "SELECT role, content, agent_id, created_at, private FROM messages "
             "WHERE conversation_id = ? ORDER BY id",
             (conversation_id,),
         )
         turns = [
-            Turn(Message(role=role, content=content), agent_id, created_at)
-            for role, content, agent_id, created_at in messages
+            Turn(Message(role=role, content=content), agent_id, created_at, bool(private))
+            for role, content, agent_id, created_at, private in messages
         ]
         return PersistentConversation(
             self,
@@ -158,14 +164,15 @@ class MemoryStore:
 
     def _append(self, conversation: Conversation, turn: Turn) -> None:
         self._write(
-            "INSERT INTO messages (conversation_id, role, content, agent_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO messages (conversation_id, role, content, agent_id, created_at, private) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 conversation.id,
                 turn.message.role,
                 turn.message.content,
                 turn.agent_id,
                 turn.created_at,
+                int(turn.private),
             ),
         )
         self._touch(conversation)
@@ -263,12 +270,12 @@ class PersistentConversation(Conversation):
         super().__init__(**fields)
         self._store = store
 
-    def add_user(self, text: str) -> None:
-        super().add_user(text)
+    def add_user(self, text: str, *, private: bool = False) -> None:
+        super().add_user(text, private=private)
         self._store._append(self, self.turns[-1])
 
-    def add_assistant(self, text: str, agent_id: str) -> None:
-        super().add_assistant(text, agent_id)
+    def add_assistant(self, text: str, agent_id: str, *, private: bool = False) -> None:
+        super().add_assistant(text, agent_id, private=private)
         self._store._append(self, self.turns[-1])
 
     def drop_last_user(self) -> None:

@@ -68,47 +68,55 @@ class Assistant:
         *,
         style: str | None = None,
         tool_context=None,  # jarvis.tools.base.ToolContext: how to confirm, UI events
+        local_only: bool = False,  # never let this message (or its summary) leave the Mac
     ) -> OrchestratorResult:
         text = text.strip()
         if self.memory is not None and (command := parse(text)):
-            return self._local(conversation, text, self._run_command(command))
+            return self._local(conversation, text, self._run_command(command), local_only)
 
         private = None
         if self.memory is not None:
             private = facts_section(relevant_facts(self.memory.facts(), text))
         if self.tools is not None and self.tools.prompt() is not None:
-            result = await self._ask_with_tools(conversation, text, style, private, tool_context)
+            result = await self._ask_with_tools(
+                conversation, text, style, private, tool_context, local_only
+            )
         else:
             result = await self.orchestrator.ask(
-                conversation, text, style=style, private_context=private
+                conversation, text, style=style, private_context=private, local_only=local_only
             )
         if self.summarize:
             task = asyncio.create_task(
-                maybe_summarize(self.orchestrator, conversation, window=self.window)
+                maybe_summarize(
+                    self.orchestrator, conversation, window=self.window, local_only=local_only
+                )
             )
             self._background.add(task)
             task.add_done_callback(self._background.discard)
         return result
 
-    async def _ask_with_tools(self, conversation, text, style, private, tool_context):
+    async def _ask_with_tools(self, conversation, text, style, private, tool_context, local_only):
         from jarvis.tools.base import ToolContext
 
         ctx = tool_context or ToolContext()
         ctx.conversation_id = conversation.id
-        conversation.add_user(text)
+        conversation.add_user(text, private=local_only)
         try:
             result = await self.tools.run(
                 self.orchestrator,
-                conversation.context(self.window),
+                conversation.context(self.window, include_private=local_only),
                 classify(text),
                 style=style,
                 private_context=private,
                 ctx=ctx,
+                local_only=local_only,
             )
         except AllAgentsFailedError:
             conversation.drop_last_user()
             raise
-        conversation.add_assistant(result.response.text, result.response.agent_id)
+        conversation.add_assistant(
+            result.response.text, result.response.agent_id, private=local_only
+        )
         return result
 
     async def wait_background(self) -> None:
@@ -152,9 +160,11 @@ class Assistant:
         return f"Eu lembro que: {listed}{more}."
 
     @staticmethod
-    def _local(conversation: Conversation, text: str, answer: str) -> OrchestratorResult:
-        conversation.add_user(text)
-        conversation.add_assistant(answer, MEMORY_AGENT)
+    def _local(
+        conversation: Conversation, text: str, answer: str, private: bool = False
+    ) -> OrchestratorResult:
+        conversation.add_user(text, private=private)
+        conversation.add_assistant(answer, MEMORY_AGENT, private=private)
         return OrchestratorResult(
             response=AIResponse(
                 text=answer, agent_id=MEMORY_AGENT, model="local", cost=0, latency_ms=0.0

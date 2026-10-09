@@ -138,6 +138,32 @@ describe("tool events", () => {
   });
 });
 
+describe("local-only mode", () => {
+  it("marks messages exchanged in local-only mode as private", () => {
+    let state = apply(initialState, { type: "local_only", value: true });
+    state = reducer(state, { kind: "user", text: "segredo" });
+    state = apply(state, { type: "transcript", text: "outro segredo", stt_ms: 1 });
+    state = apply(state, { type: "local_only", value: false });
+    state = reducer(state, { kind: "user", text: "pergunta comum" });
+    expect(state.entries.map((e) => [e.text, Boolean(e.private)])).toEqual([
+      ["segredo", true],
+      ["outro segredo", true],
+      ["pergunta comum", false],
+    ]);
+  });
+
+  it("restores the private flag from saved history", () => {
+    const state = apply(initialState, {
+      type: "history",
+      conversation_id: "c",
+      title: "🔒 conversa privada",
+      has_summary: false,
+      messages: [{ role: "user", text: "segredo", agent_id: null, created_at: 1, private: true }],
+    });
+    expect(state.entries[0].private).toBe(true);
+  });
+});
+
 describe("parseServerEvent", () => {
   it("rejects garbage", () => {
     expect(parseServerEvent("nope")).toBeNull();

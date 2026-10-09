@@ -22,6 +22,7 @@ export interface ChatEntry {
   latencyMs?: number;
   attempts?: Attempt[];
   tools?: ToolUse[];
+  private?: boolean; // exchanged in local-only mode: never sent outside this Mac
 }
 
 export interface UiState {
@@ -45,6 +46,7 @@ export interface UiState {
   facts: Fact[];
   activeTool: string | null;
   confirms: ConfirmRequest[];
+  localOnly: boolean;
 }
 
 export const initialState: UiState = {
@@ -68,6 +70,7 @@ export const initialState: UiState = {
   facts: [],
   activeTool: null,
   confirms: [],
+  localOnly: false,
 };
 
 export type Action =
@@ -91,7 +94,12 @@ export function reducer(state: UiState, action: Action): UiState {
       : { ...next, voiceActive: false, serverState: "idle", confirms: [], activeTool: null };
   }
   if (action.kind === "user") {
-    return addEntry(state, { role: "user", text: action.text, mode: "text" });
+    return addEntry(state, {
+      role: "user",
+      text: action.text,
+      mode: "text",
+      private: state.localOnly || undefined,
+    });
   }
 
   const event = action.event;
@@ -102,11 +110,19 @@ export function reducer(state: UiState, action: Action): UiState {
         voiceReady: event.voice_ready,
         ttsEngine: event.tts_engine,
         maxText: event.max_text,
+        localOnly: event.local_only ?? false,
       };
+    case "local_only":
+      return { ...state, localOnly: event.value };
     case "state":
       return { ...state, serverState: event.state };
     case "transcript":
-      return addEntry(state, { role: "user", text: event.text, mode: "voice" });
+      return addEntry(state, {
+        role: "user",
+        text: event.text,
+        mode: "voice",
+        private: state.localOnly || undefined,
+      });
     case "answer":
       return {
         ...addEntry(state, {
@@ -118,6 +134,7 @@ export function reducer(state: UiState, action: Action): UiState {
           latencyMs: event.latency_ms,
           attempts: event.attempts,
           tools: event.tools,
+          private: state.localOnly || undefined,
         }),
         currentAgentId: event.agent_id,
         activeTool: null,
@@ -147,6 +164,7 @@ export function reducer(state: UiState, action: Action): UiState {
         text: m.text,
         mode: "text",
         agentId: m.agent_id ?? undefined,
+        private: m.private || undefined,
       }));
       return {
         ...state,

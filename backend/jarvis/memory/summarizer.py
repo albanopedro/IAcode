@@ -28,13 +28,17 @@ async def maybe_summarize(
     *,
     window: int = DEFAULT_WINDOW,
     batch: int = 10,
+    local_only: bool = False,
 ) -> bool:
     """Summarize when enough turns left the window. Returns True when the summary changed."""
     upto = len(conversation.turns) - window
     if upto - conversation.summarized < batch:
         return False
     generation = conversation.generation
-    chunk = conversation.turns[conversation.summarized : upto]
+    # Private (local-only) turns never go into a summary: it is shared with every agent.
+    chunk = [t for t in conversation.turns[conversation.summarized : upto] if not t.private]
+    if not chunk:
+        return conversation.set_summary(conversation.summary or "", upto, generation)
     lines = [
         f"{'Usuário' if t.message.role == 'user' else 'JARVIS'}: {t.message.content}" for t in chunk
     ]
@@ -46,7 +50,10 @@ async def maybe_summarize(
     )
     try:
         result = await orchestrator.complete(
-            [Message(role="user", content=prompt)], TaskType.CHAT, style=SUMMARY_INSTRUCTIONS
+            [Message(role="user", content=prompt)],
+            TaskType.CHAT,
+            style=SUMMARY_INSTRUCTIONS,
+            local_only=local_only,
         )
     except AllAgentsFailedError:
         return False

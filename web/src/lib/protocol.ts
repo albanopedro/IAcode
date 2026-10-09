@@ -69,6 +69,7 @@ export interface HistoryMessage {
   text: string;
   agent_id: string | null;
   created_at: number;
+  private?: boolean;
 }
 
 export interface ConversationSummary {
@@ -85,7 +86,14 @@ export interface Fact {
 }
 
 export type ServerEvent =
-  | { type: "hello"; voice_ready: boolean; tts_engine: string; max_text: number }
+  | {
+      type: "hello";
+      voice_ready: boolean;
+      tts_engine: string;
+      max_text: number;
+      local_only?: boolean;
+    }
+  | { type: "local_only"; value: boolean }
   | { type: "state"; state: JarvisState }
   | { type: "transcript"; text: string; stt_ms: number }
   | AnswerEvent
@@ -123,6 +131,7 @@ export type ClientMessage =
   | { type: "forget_fact"; id: number }
   | { type: "clear_facts"; confirm: true }
   | { type: "confirm_reply"; id: string; approved: boolean }
+  | { type: "set_local_only"; value: boolean }
   | { type: "status" };
 
 export function parseServerEvent(raw: string): ServerEvent | null {

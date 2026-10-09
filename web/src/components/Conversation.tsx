@@ -9,7 +9,7 @@ const TASK_LABELS: Record<string, string> = {
 };
 
 function shortAgent(id: string): string {
-  return id.replace(/^opencode:/, "").replace(/-free$/, "");
+  return id.replace(/^opencode:/, "").replace(/-free$/, "").replace(/^local:/, "💻 ");
 }
 
 export function Conversation({ entries }: { entries: ChatEntry[] }) {
@@ -36,6 +36,11 @@ export function Conversation({ entries }: { entries: ChatEntry[] }) {
             {entry.role === "user" ? "Você" : entry.role === "jarvis" ? "JARVIS" : "Aviso"}
             {entry.agentId === "jarvis:memoria" && <span className="tag memory">🧠 memória</span>}
             {entry.mode === "voice" && <span className="tag">🎙 voz</span>}
+            {entry.private && (
+              <span className="tag private" title="Só local: nunca enviado para fora deste Mac">
+                🔒 privado
+              </span>
+            )}
             {entry.agentId && entry.agentId !== "jarvis:memoria" && (
               <span className="tag agent">{shortAgent(entry.agentId)}</span>
             )}

@@ -150,6 +150,15 @@ export default function App() {
               <input type="checkbox" checked={speakAnswers} onChange={(e) => setSpeakAnswers(e.target.checked)} />
               Falar respostas escritas
             </label>
+            <label title="Só o modelo que roda neste Mac responde; nada é enviado para a internet">
+              <input
+                type="checkbox"
+                checked={state.localOnly === true}
+                disabled={!online}
+                onChange={(e) => socket.current?.send({ type: "set_local_only", value: e.target.checked })}
+              />
+              🔒 Só local (nada sai do Mac)
+            </label>
           </div>
         </section>
 

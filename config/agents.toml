@@ -223,3 +223,18 @@ max_steps = 4
 max_calls_per_minute = 20
 allowed_dirs = []        # e.g. ["~/Documents/notas"]
 policies = {}            # e.g. { fetch_url = "allow", run_python = "deny" }
+
+# ---------------------------------------------------------------------------
+# Local AI (Phase 8): runs on this Mac with MLX-LM, offline and free.
+# Download the model once:  jarvis local download   (~2.3 GB, Apache-2.0)
+# Low priority: the free online agents answer first; the local model takes over when
+# they are unavailable (no internet, quotas used up). `jarvis chat --local` (or the
+# "só local" switch in the web interface) uses ONLY this model: nothing leaves the Mac.
+# ---------------------------------------------------------------------------
+[local]
+enabled = true
+model = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+priority = 30
+context_window = 32768
+max_tokens = 1024
+idle_minutes = 10     # unload the model (frees ~3 GB of RAM) after this idle time

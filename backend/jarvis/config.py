@@ -109,6 +109,17 @@ class ToolsConfig(BaseModel):
     policies: dict[str, str] = Field(default_factory=dict)
 
 
+class LocalConfig(BaseModel):
+    """Offline model (MLX-LM). Download it once with `jarvis local download`."""
+
+    enabled: bool = True
+    model: str = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
+    priority: int = 30  # low: online free agents first, local as the offline fallback
+    context_window: int = 32768
+    max_tokens: int = 1024
+    idle_minutes: float = 10  # unload the model after this long without use
+
+
 class Settings(BaseModel):
     cost_mode: CostMode = CostMode.FREE_ONLY
     data_dir: Path = DEFAULT_DATA_DIR
@@ -116,6 +127,7 @@ class Settings(BaseModel):
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    local: LocalConfig = Field(default_factory=LocalConfig)
     opencode: OpenCodeConfig = Field(default_factory=OpenCodeConfig)
     openai_compat: list[OpenAICompatConfig] = Field(default_factory=list)
 

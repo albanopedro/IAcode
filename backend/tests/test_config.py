@@ -55,7 +55,7 @@ def test_project_config_builds_only_free_agents(tmp_path):
 def test_disabled_agents_are_not_built(tmp_path):
     config = tmp_path / "agents.toml"
     config.write_text(
-        "[opencode]\nenabled = false\n\n"
+        "[opencode]\nenabled = false\n\n[local]\nenabled = false\n\n"
         "[[openai_compat]]\n"
         'id = "x"\nname = "X"\nprovider = "x"\nbase_url = "https://x"\n'
         'model = "m"\napi_key_env = "X_KEY"\nenabled = false\n'

@@ -41,6 +41,7 @@ class ToolKit:
         style: str | None,
         private_context: str | None,
         ctx: ToolContext,
+        local_only: bool = False,
     ) -> OrchestratorResult:
         messages = list(context)
         used: list[ToolUse] = []
@@ -50,7 +51,11 @@ class ToolKit:
             extra = FINAL_ANSWER_ONLY if (last and tools_text) else tools_text
             full_style = "\n\n".join(p for p in (style, extra) if p) or None
             result = await orchestrator.complete(
-                messages, task, style=full_style, private_context=private_context
+                messages,
+                task,
+                style=full_style,
+                private_context=private_context,
+                local_only=local_only,
             )
             call = parse_tool_call(result.response.text)
             if call is None:

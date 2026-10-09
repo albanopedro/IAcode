@@ -195,6 +195,9 @@ no_speech_timeout = 8      # seconds of waiting before listening again
 # Raise wake_threshold if it wakes up by mistake; lower it if it does not hear you.
 wake_word_model = "hey_jarvis_v0.1"
 wake_threshold = 0.5
+# Barge-in: say "Hey Jarvis" while JARVIS is talking to cut it off and speak. Speak
+# louder than the speakers (or use headphones); JARVIS's own voice scores below 0.25.
+barge_in = true
 stop_phrases = ["tchau jarvis", "encerrar conversa", "pode parar jarvis", "desligar jarvis"]  # "xau" also works
 
 # ---------------------------------------------------------------------------

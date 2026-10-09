@@ -31,6 +31,8 @@ export interface UiState {
   voiceActive: boolean;
   voiceEngines: string | null;
   voiceReady: boolean;
+  /** "Hey Jarvis" while JARVIS talks cuts it off. */
+  bargeIn: boolean;
   ttsEngine: string;
   maxText: number;
   costMode: string;
@@ -55,6 +57,7 @@ export const initialState: UiState = {
   voiceActive: false,
   voiceEngines: null,
   voiceReady: false,
+  bargeIn: false,
   ttsEngine: "say",
   maxText: 4000,
   costMode: "FREE_ONLY",
@@ -91,7 +94,7 @@ export function reducer(state: UiState, action: Action): UiState {
     // A dropped connection ends any voice loop on the server side.
     return action.status === "open"
       ? next
-      : { ...next, voiceActive: false, serverState: "idle", confirms: [], activeTool: null };
+      : { ...next, voiceActive: false, bargeIn: false, serverState: "idle", confirms: [], activeTool: null };
   }
   if (action.kind === "user") {
     return addEntry(state, {
@@ -147,6 +150,7 @@ export function reducer(state: UiState, action: Action): UiState {
         voiceActive: event.active,
         voiceReady: event.active ? true : state.voiceReady,
         voiceEngines: event.active && event.stt && event.tts ? `${event.stt} · ${event.tts}` : state.voiceEngines,
+        bargeIn: event.active && event.barge_in === true,
       };
     case "cleared":
       return { ...state, entries: [], currentAgentId: null };
@@ -187,6 +191,7 @@ export function reducer(state: UiState, action: Action): UiState {
     case "confirm_closed":
       return { ...state, confirms: state.confirms.filter((c) => c.id !== event.id) };
     case "wake":
+    case "interrupted":
       return { ...state, serverState: "listening" };
     case "stop_audio":
       return state;

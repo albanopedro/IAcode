@@ -26,6 +26,7 @@ LABELS = {
     Phase.LISTENING: "🎙️  ouvindo… (fale quando quiser; diga “tchau JARVIS” para sair)",
     Phase.THINKING: "💭 pensando…",
     Phase.SPEAKING: "🔊 falando…",
+    Phase.INTERRUPTED: "✋ interrompido, pode falar",
 }
 
 
@@ -52,12 +53,22 @@ async def cmd_voice(tts_engine: str | None, once: bool, wake: bool = False) -> i
     await asyncio.gather(asyncio.to_thread(stt.warm_up), asyncio.to_thread(tts.warm_up))
     print(f"Pronto em {time.perf_counter() - started:.1f}s.\n")
 
-    wake_word = None
-    if wake:
+    wake_word = barge_in = None
+    if wake or settings.voice.barge_in:
         from jarvis.voice.factory import build_wake_word
 
-        wake_word = build_wake_word(settings)
-        await asyncio.to_thread(wake_word.warm_up)
+        detector = build_wake_word(settings)
+        try:
+            await asyncio.to_thread(detector.warm_up)
+        except Exception as exc:
+            if wake:
+                raise
+            print(f"(sem interrupção por voz: {exc})")
+        else:
+            wake_word = detector if wake else None
+            barge_in = detector if settings.voice.barge_in else None
+    if barge_in is not None:
+        print("Diga “Hey Jarvis” enquanto eu falo para me interromper.")
     session = VoiceSession(
         assistant,  # type: ignore[arg-type]  # same ask() as the orchestrator, plus memory
         stt,
@@ -69,6 +80,7 @@ async def cmd_voice(tts_engine: str | None, once: bool, wake: bool = False) -> i
         stop_phrases=tuple(settings.voice.stop_phrases),
         wake_word=wake_word,
         wake_threshold=settings.voice.wake_threshold,
+        barge_in=barge_in,
         on_event=print_event,
     )
     monitor = HealthMonitor(manager, interval)

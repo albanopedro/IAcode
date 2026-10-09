@@ -6,6 +6,7 @@ Client → server (JSON text messages, plus binary microphone audio):
                                                        (wake: sleep until "Hey Jarvis")
     {"type": "voice_stop"}                             stop listening
     {"type": "interrupt"}                              stop JARVIS talking
+    {"type": "played", "count": 3}                     sentences the browser finished playing
     {"type": "clear"} / {"type": "new_conversation"}   start a new conversation
     {"type": "open_conversation", "id": "..."}         reopen a saved conversation
     {"type": "delete_conversation", "id": "..."}       delete a saved conversation
@@ -19,6 +20,7 @@ Client → server (JSON text messages, plus binary microphone audio):
 
 Server → client (JSON), plus binary WAV messages with JARVIS's voice:
     hello · state · transcript · answer · agents · stop_audio · cleared · error
+    voice (the loop started/stopped) · wake ("Hey Jarvis" heard) · interrupted (barge-in)
     history (the open conversation) · conversations · facts
     tool (a tool started/finished) · confirm / confirm_closed (a tool needs your OK)
 """
@@ -225,6 +227,10 @@ class Connection:
         elif kind == "interrupt":
             self.sink.stop()
             self.emit({"type": "stop_audio"})
+        elif kind == "played":
+            count = message.get("count")
+            if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+                self.sink.mark_played(count)
         elif kind in ("clear", "new_conversation"):
             memory = self.runtime.memory
             self._switch(memory.new_conversation() if memory else Conversation())
@@ -400,6 +406,10 @@ class Connection:
             self.emit({"type": "error", "message": f"voz indisponível: {exc}"})
             self.state("idle")
             return
+        barge_in = wake_word
+        if barge_in is None and self.runtime.settings.voice.barge_in:
+            with contextlib.suppress(Exception):  # optional: without it, the button still works
+                barge_in = await self.runtime.wake_word()
         from jarvis.voice.factory import vad_config
 
         voice = self.runtime.settings.voice
@@ -415,9 +425,19 @@ class Connection:
             on_event=self._on_voice_event,
             wake_word=wake_word,
             wake_threshold=voice.wake_threshold,
+            barge_in=barge_in if voice.barge_in else None,
         )
         self.voice_session = session
-        self.emit({"type": "voice", "active": True, "stt": stt.name, "tts": tts.name, "wake": wake})
+        self.emit(
+            {
+                "type": "voice",
+                "active": True,
+                "stt": stt.name,
+                "tts": tts.name,
+                "wake": wake,
+                "barge_in": session.barge_in is not None,
+            }
+        )
         try:
             await session.run()
         finally:
@@ -442,6 +462,9 @@ class Connection:
             self._after_answer(data)
         elif phase is Phase.SPEAKING:
             self.state("speaking")
+        elif phase is Phase.INTERRUPTED:
+            self.emit({"type": "stop_audio"})
+            self.emit({"type": "interrupted", "score": round(float(data), 3)})
         elif phase is Phase.ERROR:
             self.emit({"type": "error", "message": str(data)})
 

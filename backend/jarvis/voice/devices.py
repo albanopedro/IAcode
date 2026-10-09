@@ -31,6 +31,10 @@ class AudioSource(Protocol):
 class AudioSink(Protocol):
     async def play(self, clip: AudioClip) -> None: ...
 
+    async def drained(self) -> None:
+        """Wait until everything played so far has been heard (or was stopped)."""
+        ...
+
     def stop(self) -> None: ...
 
 
@@ -81,6 +85,9 @@ class Speaker:
         sd.play(clip.samples, clip.sample_rate, device=self.device)
         await asyncio.to_thread(sd.wait)
 
+    async def drained(self) -> None:
+        return  # play() returns when the clip is over
+
     def stop(self) -> None:
         import sounddevice as sd
 
@@ -129,6 +136,9 @@ class MemorySink:
 
     async def play(self, clip: AudioClip) -> None:
         self.played.append(clip)
+
+    async def drained(self) -> None:
+        return
 
     def stop(self) -> None:
         self.stopped += 1

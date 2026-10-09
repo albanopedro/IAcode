@@ -1,7 +1,18 @@
 # Changelog
 
-## Não lançado — CI
+## 1.2.0 — Interromper por voz, CI e licença
 
+- Licença MIT (`LICENSE`), com as licenças de terceiros listadas no README.
+- **Interromper o JARVIS falando:** diga "Hey Jarvis" no meio da resposta e ele para na
+  hora e ouve a sua próxima pergunta. Funciona no terminal e no navegador, com ou sem o
+  modo "Ativar por Hey Jarvis". Enquanto ele fala, o microfone só é pontuado para a
+  palavra-chave: nada é transcrito. Desligue com `[voice] barge_in = false`.
+- Testado com a voz e o modelo reais e um eco simulado: lendo uma resposta de 19 s que
+  diz "Jarvis" e até "Hey Jarvis", ele não se interrompe sozinho (a própria voz pontua
+  no máximo 0,24 com o `say` e 0,02 com o Piper; o limiar é 0,5). Você dizendo
+  "Hey Jarvis" por cima da fala corta a voz cerca de 0,8 s depois.
+- O servidor agora sabe quando o navegador terminou de falar (`played`), e o estado
+  "falando" dura até o fim do áudio. A tecla **Esc** interrompe, como o botão.
 - GitHub Actions (`.github/workflows/ci.yml`): backend (ruff, pytest com cobertura) e
   web (tipos, Vitest, build, `npm audit`). Gratuito, só leitura, sem segredos.
 - Os testes do modelo local e do wake word não dependem mais de extras opcionais

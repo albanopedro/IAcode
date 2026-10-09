@@ -21,6 +21,19 @@ const answer = (text: string, agent = "opencode:space-bunny-free"): AnswerEvent 
 });
 
 describe("reducer", () => {
+  it("knows when 'Hey Jarvis' can interrupt and goes back to listening after it", () => {
+    let state = apply(
+      initialState,
+      { type: "voice", active: true, stt: "whisper", tts: "say", barge_in: true },
+      { type: "state", state: "speaking" },
+    );
+    expect(state.bargeIn).toBe(true);
+    state = apply(state, { type: "interrupted", score: 0.99 });
+    expect(state.serverState).toBe("listening");
+    expect(apply(state, { type: "voice", active: false }).bargeIn).toBe(false);
+    expect(apply(initialState, { type: "voice", active: true }).bargeIn).toBe(false);
+  });
+
   it("builds the conversation from voice turns and tracks the current agent", () => {
     const state = apply(
       initialState,

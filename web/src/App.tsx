@@ -27,19 +27,31 @@ export default function App() {
   const player = useRef<VoicePlayer | null>(null);
 
   useEffect(() => {
+    let bargeIn = false; // the server listens for "Hey Jarvis" while JARVIS talks
+    let received = 0; // sentences received on this connection
     const microphone = new Microphone((frame) => socket.current?.sendAudio(frame));
     const voice = new VoicePlayer((busy) => {
       setPlayerBusy(busy);
-      microphone.muted = busy; // half-duplex: never send JARVIS's own voice back
+      // Half-duplex: JARVIS's own voice is only sent back when the server needs it to
+      // hear "Hey Jarvis" (it is scored for the wake word, never transcribed).
+      microphone.muted = busy && !bargeIn;
+      if (!busy) socket.current?.send({ type: "played", count: received });
     });
     const ws = new JarvisSocket(defaultSocketUrl(), {
       onEvent: (event) => {
         if (event.type === "stop_audio") voice.stop();
-        if (event.type === "voice" && !event.active) void microphone.stop();
+        if (event.type === "voice") {
+          bargeIn = event.active && event.barge_in === true;
+          if (!event.active) void microphone.stop();
+        }
         dispatch({ kind: "server", event });
       },
-      onAudio: (wav) => voice.enqueue(wav),
+      onAudio: (wav) => {
+        received += 1;
+        voice.enqueue(wav);
+      },
       onStatus: (status) => {
+        if (status === "open") received = 0; // a new connection counts from zero
         if (status !== "open") void microphone.stop();
         dispatch({ kind: "connection", status });
       },
@@ -88,6 +100,17 @@ export default function App() {
     socket.current?.send({ type: "interrupt" });
   }
 
+  // Esc interrupts JARVIS, like the "Interromper" button.
+  const talking = playerBusy || state.serverState === "speaking";
+  useEffect(() => {
+    if (!talking) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") interrupt();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [talking]);
+
   async function sendText() {
     const text = draft.trim();
     if (!text || !online) return;
@@ -131,12 +154,13 @@ export default function App() {
             >
               {state.voiceActive ? "⏹ Parar de ouvir" : "🎙 Conversar por voz"}
             </button>
-            {(playerBusy || state.serverState === "speaking") && (
-              <button type="button" className="secondary" onClick={interrupt}>
+            {talking && (
+              <button type="button" className="secondary" onClick={interrupt} title="Atalho: Esc">
                 ✋ Interromper
               </button>
             )}
           </div>
+          {talking && state.bargeIn && <p className="engines">Diga “Hey Jarvis” para interromper</p>}
           {micError && <p className="mic-error">{micError}</p>}
 
           <div className="settings">

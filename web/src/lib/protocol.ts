@@ -98,8 +98,9 @@ export type ServerEvent =
   | { type: "transcript"; text: string; stt_ms: number }
   | AnswerEvent
   | { type: "agents"; cost_mode: string; agents: AgentStatus[] }
-  | { type: "voice"; active: boolean; stt?: string; tts?: string; wake?: boolean }
+  | { type: "voice"; active: boolean; stt?: string; tts?: string; wake?: boolean; barge_in?: boolean }
   | { type: "wake"; score: number }
+  | { type: "interrupted"; score: number }
   | { type: "stop_audio" }
   | { type: "cleared" }
   | { type: "error"; message: string; attempts?: Attempt[] }
@@ -123,6 +124,7 @@ export type ClientMessage =
   | { type: "voice_start"; tts?: TtsEngine; wake?: boolean }
   | { type: "voice_stop" }
   | { type: "interrupt" }
+  | { type: "played"; count: number }
   | { type: "clear" }
   | { type: "new_conversation" }
   | { type: "open_conversation"; id: string }

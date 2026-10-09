@@ -1,8 +1,9 @@
 [project]
 name = "jarvis"
-version = "1.1.0"
+version = "1.2.0"
 description = "JARVIS — multi-agent personal assistant that only uses free AI agents"
 requires-python = ">=3.12"
+license = "MIT"  # see ../LICENSE
 dependencies = [
     "httpx==0.28.1",
     "pydantic==2.13.5",
@@ -37,7 +38,7 @@ dev = [
 jarvis = "jarvis.cli:main"
 
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]  # SPDX license expressions
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

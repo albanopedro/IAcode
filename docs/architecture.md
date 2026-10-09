@@ -45,7 +45,8 @@ flowchart TB
    - o CostGuard confere antes e depois de cada chamada;
    - em caso de falha, registra e tenta o próximo.
 5. **Saída:** texto (web/CLI) ou voz (dividida em frases; a próxima é sintetizada
-   enquanto a atual toca).
+   enquanto a atual toca). Enquanto fala, o microfone só procura "Hey Jarvis": ouvir
+   a palavra-chave corta a voz e volta a escutar (barge-in).
 
 ## Pontuação do Router
 

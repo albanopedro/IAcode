@@ -1,7 +1,9 @@
 """The voice loop: listen → transcribe → think → speak, turn after turn.
 
-- Half-duplex: the microphone is closed while JARVIS speaks, so it never hears
-  (and answers) itself.
+- Half-duplex: JARVIS never transcribes the microphone while it speaks, so it never
+  hears (and answers) itself.
+- Barge-in (optional): while JARVIS speaks, the microphone is only scored for
+  "Hey Jarvis"; hearing it stops the voice at once and JARVIS listens again.
 - The conversation object is shared with the text mode, so context carries over
   ("explique Docker" … "e como instalo no Mac?").
 - Streaming on the way out: the answer is split into sentences and the next one is
@@ -57,6 +59,7 @@ class Phase(StrEnum):
     THINKING = "thinking"
     ANSWER = "answer"
     SPEAKING = "speaking"
+    INTERRUPTED = "interrupted"  # "Hey Jarvis" while speaking
     IDLE = "idle"
     ERROR = "error"
 
@@ -74,6 +77,7 @@ class TurnResult:
     transcript: Transcript | None = None
     result: OrchestratorResult | None = None
     timings: dict[str, float] = field(default_factory=dict)
+    interrupted: bool = False  # the user cut the answer off
 
 
 def _normalize(text: str) -> str:
@@ -98,6 +102,7 @@ class VoiceSession:
         on_event: Callable[[Phase, Any], None] | None = None,
         wake_word: WakeWord | None = None,
         wake_threshold: float = 0.5,
+        barge_in: WakeWord | None = None,
     ) -> None:
         self.orchestrator = orchestrator
         self.stt = stt
@@ -110,6 +115,7 @@ class VoiceSession:
         self.on_event = on_event or (lambda _phase, _data: None)
         self.wake_word = wake_word
         self.wake_threshold = wake_threshold
+        self.barge_in = barge_in  # may be the same detector as wake_word: never used at once
 
     # -- listening ---------------------------------------------------------------
 
@@ -159,11 +165,33 @@ class VoiceSession:
 
     # -- speaking -----------------------------------------------------------------
 
-    async def speak(self, text: str) -> None:
+    async def speak(self, text: str, *, interruptible: bool = True) -> bool:
+        """Say ``text``. Returns True when the user cut JARVIS off (barge-in)."""
         sentences = split_sentences(speakable(text))
         if not sentences:
-            return
+            return False
         self.on_event(Phase.SPEAKING, text)
+        playback = asyncio.create_task(self._play(sentences))
+        if self.barge_in is None or not interruptible:
+            await playback
+            return False
+        watcher = asyncio.create_task(self._watch_for_barge_in())
+        try:
+            await asyncio.wait({playback, watcher}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in (playback, watcher):
+                task.cancel()
+            await asyncio.gather(playback, watcher, return_exceptions=True)
+        if watcher.cancelled() or watcher.exception() is not None or not watcher.result():
+            # JARVIS finished first (or the detector failed): surface TTS errors as before.
+            if not playback.cancelled() and playback.exception() is not None:
+                raise playback.exception()
+            return False
+        self.sink.stop()
+        self.on_event(Phase.INTERRUPTED, watcher.result())
+        return True
+
+    async def _play(self, sentences: list[str]) -> None:
         pending = asyncio.create_task(self.tts.synthesize(sentences[0]))
         try:
             for index in range(len(sentences)):
@@ -171,9 +199,24 @@ class VoiceSession:
                 if index + 1 < len(sentences):
                     pending = asyncio.create_task(self.tts.synthesize(sentences[index + 1]))
                 await self.sink.play(clip)
+            await self.sink.drained()
         finally:
             if not pending.done():
                 pending.cancel()
+
+    async def _watch_for_barge_in(self) -> float:
+        """Score the microphone for the wake word while JARVIS talks. Nothing else is kept."""
+        assert self.barge_in is not None
+        self.barge_in.reset()
+        frames = self.source.frames()
+        try:
+            async for frame in frames:
+                score = self.barge_in.feed(frame)
+                if score >= self.wake_threshold:
+                    return score
+        finally:
+            await frames.aclose()
+        return 0.0
 
     def interrupt(self) -> None:
         self.sink.stop()
@@ -210,10 +253,10 @@ class VoiceSession:
         self.on_event(Phase.ANSWER, result)
 
         started = time.perf_counter()
-        await self.speak(result.response.text)
+        interrupted = await self.speak(result.response.text)
         timings["speak_ms"] = (time.perf_counter() - started) * 1000
         self.on_event(Phase.IDLE, None)
-        return TurnResult(TurnOutcome.ANSWERED, transcript, result, timings)
+        return TurnResult(TurnOutcome.ANSWERED, transcript, result, timings, interrupted)
 
     async def run(self, *, max_turns: int | None = None, stop_on_silence: bool = False) -> int:
         """Continuous conversation. Returns the number of answered turns.
@@ -240,7 +283,8 @@ class VoiceSession:
         answered = turns = 0
         while max_turns is None or turns < max_turns:
             await self.wait_for_wake()
-            await self.speak(WAKE_REPLY)
+            # The end of the same "Hey Jarvis" would cut "Sim?" off: it is short anyway.
+            await self.speak(WAKE_REPLY, interruptible=False)
             while max_turns is None or turns < max_turns:
                 outcome = (await self.turn()).outcome
                 if outcome in (TurnOutcome.STOP, TurnOutcome.NOTHING_HEARD):

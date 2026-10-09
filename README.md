@@ -20,6 +20,8 @@ limite, falha ou fica offline. Sem internet, um modelo **local** assume.
 - **"Hey Jarvis":** o JARVIS dorme até ouvir a palavra-chave (pronúncia em inglês),
   conversa e volta a dormir depois de um silêncio ou de "tchau JARVIS". Enquanto ele
   dorme, o áudio é analisado localmente e descartado: nada é gravado nem enviado.
+- **Interromper falando:** diga "Hey Jarvis" no meio da resposta (ou aperte Esc na
+  interface) e o JARVIS para e ouve você.
 - **Interface** com orb animado, estados (ouvindo, pensando, falando), voz no navegador,
   painel de agentes, histórico e memória.
 - **Memória:** histórico salvo, resumo automático de conversas longas e lembranças que
@@ -143,13 +145,31 @@ config/agents.toml   agentes, limites, voz, memória, ferramentas, IA local (sem
 
 - Os modelos gratuitos do OpenCode Zen são "por tempo limitado" e mudam com frequência;
   o JARVIS descobre a lista a cada verificação.
-- Não dá para interromper o JARVIS falando (sem cancelamento de eco), e o streaming é
-  por frase, não por token.
+- Só "Hey Jarvis" interrompe o JARVIS falando: sem cancelamento de eco no terminal,
+  qualquer fala o faria ouvir a si mesmo. Fale mais alto que o alto-falante ou use fone.
+  O streaming é por frase, não por token.
 - O VAD por energia sofre em ambiente barulhento. A automação do sistema ficou para
   depois.
 - O modelo pronto "hey_jarvis" do openWakeWord é **CC BY-NC-SA 4.0** (uso pessoal, não
   comercial) e foi treinado com a pronúncia inglesa: "Ei Jarvis" com sotaque brasileiro
   quase não acorda. O limiar é ajustável em `[voice] wake_threshold`.
 - O modelo local (4B) é mais fraco que os grandes online.
+
+## Licença
+
+O código do JARVIS é [MIT](LICENSE). As dependências e os modelos baixados no primeiro
+uso têm licenças próprias e não fazem parte deste repositório:
+
+| Componente | Licença |
+|---|---|
+| Modelo "hey_jarvis" do openWakeWord (wake word e interrupção) | CC BY-NC-SA 4.0: só uso pessoal, não comercial |
+| Piper (`piper-tts`, voz opcional) | GPL-3.0 |
+| Vozes do macOS (`say`) | Licença do macOS (Apple) |
+| Qwen3-4B (IA local) | Apache-2.0 |
+| whisper.cpp, MLX-LM, FastAPI, React | MIT |
+
+O projeto é pessoal. Antes de qualquer uso comercial, revise essas licenças: o modelo da
+wake word não permite (desligue `barge_in` e o `--wake` ou treine outro), e as vozes do
+macOS seguem os termos da Apple.
 
 Histórico de mudanças: [CHANGELOG.md](CHANGELOG.md).

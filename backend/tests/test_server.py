@@ -57,6 +57,7 @@ class ToneTTS(TTSProvider):
 
 def make_client(agents, *, stt_texts=(), tmp_path=None, memory=None, tools=None):
     settings = Settings(data_dir=tmp_path) if tmp_path else Settings()
+    settings.voice.barge_in = False  # tests opt in with a fake detector (see test_barge_in)
     manager = AgentManager(agents, CostGuard(), clock=FakeClock())
     tts = ToneTTS()
     voice = VoiceEngines(ScriptedSTT(stt_texts), {"say": tts, "piper": tts})
@@ -202,6 +203,7 @@ def test_voice_loop_over_websocket():
         assert transcript["text"] == "JARVIS, explique Docker."
         answer = next(m for m in seen if is_type("answer")(m))
         assert answer["mode"] == "voice"
+        ws.send_json({"type": "played", "count": 1})  # the browser finished the sentence
         # Back to listening for the next turn (continuous conversation).
         receive_until(ws, is_type("state", state="listening"))
         ws.send_json({"type": "voice_stop"})

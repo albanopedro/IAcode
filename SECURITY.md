@@ -38,6 +38,7 @@ ameaças consideradas, como cada uma é mitigada e qual teste automatizado compr
 |---|---|---|
 | Uma página ou arquivo mandar o agente fazer algo | O resultado vai marcado como "CONTEÚDO EXTERNO NÃO CONFIÁVEL"; depois dele, **toda** ferramenta sensível exige sua confirmação | `test_tools.py` (`test_untrusted_content…`) |
 | Exfiltrar dados por URL (`fetch_url`) | `fetch_url` sempre pede confirmação e mostra o endereço exato | `test_tools.py` |
+| O JARVIS ouvir a si mesmo enquanto fala | Durante a fala, o microfone só é pontuado para "Hey Jarvis", nunca transcrito; o áudio desse período é descartado; a voz dele pontua no máximo 0,24 (limiar 0,5) mesmo dizendo "Hey Jarvis"; o "Sim?" depois de acordar não pode ser interrompido | `test_barge_in.py` e simulação com eco real |
 | Comando de voz mal transcrito apagar tudo | "Esqueça tudo" é recusado por voz e texto; apagar tudo exige um botão com confirmação ou digitar "SIM" | `test_memory.py`, `test_cli.py` |
 
 ### Rede

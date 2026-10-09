@@ -4,8 +4,9 @@
 
 - Licença MIT (`LICENSE`), com as licenças de terceiros listadas no README.
 - **`JARVIS.app`:** abre o JARVIS com dois cliques ou pelo Dock, sem janela do Terminal,
-  com ícone próprio. Clicado com o JARVIS ligado, oferece Abrir ou Desligar; na
-  primeira vez, instala tudo pelo `JARVIS.command`. O `/api/health` agora se identifica
+  com ícone próprio. Fica aberto enquanto o JARVIS roda; clicar no ícone reabre a
+  interface e ⌘Q desliga. Na primeira vez, instala tudo pelo `JARVIS.command`. Fontes
+  e build em `launcher/`. O `/api/health` agora se identifica
   (`"app": "jarvis"`), para o app saber se a porta é mesmo do JARVIS.
 - **Interromper o JARVIS falando:** diga "Hey Jarvis" no meio da resposta e ele para na
   hora e ouve a sua próxima pergunta. Funciona no terminal e no navegador, com ou sem o

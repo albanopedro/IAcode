@@ -34,13 +34,16 @@ limite, falha ou fica offline. Sem internet, um modelo **local** assume.
 ## Começar
 
 **Mais fácil (macOS):** dê dois cliques em **`JARVIS.app`** (ou arraste-o para o Dock).
-Ele liga o JARVIS em segundo plano, sem janela do Terminal, e abre
-http://127.0.0.1:8300. Clicado de novo com o JARVIS ligado, pergunta se você quer
-**Abrir** ou **Desligar**. Na primeira vez (e depois de uma atualização) ele abre o
-`JARVIS.command` no Terminal, que cria o ambiente e compila a interface mostrando o
-progresso. O log fica em `data/logs/jarvis.log`.
+Funciona como qualquer app:
 
-O app precisa ficar dentro da pasta do projeto; o Dock guarda só um atalho para ele.
+- **abrir** liga o JARVIS, sem janela do Terminal, e abre http://127.0.0.1:8300;
+- o **pontinho no Dock** indica que ele está ligado; clicar no ícone abre a interface de novo;
+- **⌘Q** (ou "Encerrar" no Dock) desliga o JARVIS.
+
+Na primeira vez (e depois de uma atualização) o app abre o `JARVIS.command` no
+Terminal, que cria o ambiente e compila a interface mostrando o progresso. O log fica
+em `data/logs/jarvis.log`. O app precisa ficar dentro da pasta do projeto; o Dock
+guarda só um atalho. Para reconstruí-lo: `launcher/build-app.sh`.
 
 **Manual:**
 

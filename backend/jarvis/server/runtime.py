@@ -57,8 +57,7 @@ class JarvisRuntime:
         await self.monitor.stop()
         await self.assistant.wait_background()
         await self.manager.close()
-        if self.memory is not None:
-            self.memory.close()
+        await self.assistant.close()
 
     # -- voice (loaded on first use: the models take a few seconds) -----------------
 

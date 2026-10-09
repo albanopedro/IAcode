@@ -28,6 +28,10 @@ class ToolKit:
     executor: ToolExecutor
     max_steps: int = 4
 
+    def close(self) -> None:
+        if self.executor.audit is not None:
+            self.executor.audit.close()
+
     def prompt(self) -> str | None:
         tools = self.executor.usable()
         return tools_prompt(tools, self.max_steps) if tools else None

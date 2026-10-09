@@ -119,6 +119,14 @@ class Assistant:
         )
         return result
 
+    async def close(self) -> None:
+        """Finish pending summaries, then close the memory and audit databases."""
+        await self.wait_background()
+        if self.memory is not None:
+            self.memory.close()
+        if self.tools is not None:
+            self.tools.close()
+
     async def wait_background(self) -> None:
         """Let pending summaries finish (used before shutting down, and in tests)."""
         if self._background:

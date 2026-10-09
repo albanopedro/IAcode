@@ -206,7 +206,7 @@ class OpenCodeRuntime:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), time_limit)
         except TimeoutError as exc:
             proc.kill()
-            await proc.wait()
+            await proc.communicate()  # drain and close the pipes
             raise ProviderUnavailableError(f"no answer after {time_limit:.0f}s") from exc
 
         output = stdout.decode(errors="replace")

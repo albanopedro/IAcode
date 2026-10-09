@@ -2,7 +2,9 @@
 
 Fetching pages is protected against SSRF: only http/https on public addresses —
 never localhost, your router, or anything on your local network, including after
-redirects. Pages are size-limited and reduced to plain text.
+redirects. The host is checked before connecting AND the address actually connected
+to is checked again before reading anything (closes the DNS-rebinding window).
+Pages are size-limited and reduced to plain text.
 """
 
 from __future__ import annotations
@@ -70,6 +72,15 @@ def _is_public(address: str) -> bool:
     return ip.is_global and not ip.is_multicast
 
 
+def _peer_address(response: httpx.Response) -> str | None:
+    """The IP the connection really went to (None when unknown, e.g. in tests)."""
+    stream = response.extensions.get("network_stream")
+    if stream is None:
+        return None
+    address = stream.get_extra_info("server_addr")
+    return address[0] if address else None
+
+
 async def check_public_url(url: str) -> str:
     """Raise ToolError unless ``url`` is http(s) and every address of its host is public."""
     parts = urlsplit(url)
@@ -118,6 +129,9 @@ class FetchUrlTool(Tool):
             for _ in range(MAX_REDIRECTS + 1):
                 await check_public_url(url)
                 async with client.stream("GET", url) as response:
+                    peer = _peer_address(response)
+                    if peer is not None and not _is_public(peer):
+                        raise ToolError("endereço bloqueado: o site resolveu para a rede local")
                     if response.is_redirect and "location" in response.headers:
                         url = urljoin(url, response.headers["location"])
                         continue

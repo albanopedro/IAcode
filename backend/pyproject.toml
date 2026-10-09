@@ -1,6 +1,6 @@
 [project]
 name = "jarvis"
-version = "0.1.0"
+version = "1.0.0"
 description = "JARVIS — multi-agent personal assistant that only uses free AI agents"
 requires-python = ">=3.12"
 dependencies = [
@@ -27,6 +27,7 @@ dev = [
     "httpx2==2.13.1",  # Starlette's TestClient
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
     "respx==0.23.1",
     "ruff==0.16.10",
 ]

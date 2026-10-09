@@ -4,6 +4,10 @@ Security for a server that lives on your machine:
 - it only listens on 127.0.0.1 (see ``jarvis serve``);
 - browsers send an ``Origin`` header: only the JARVIS pages themselves are accepted,
   so another website open in your browser cannot drive JARVIS through localhost;
+- the ``Host`` header must be localhost/127.0.0.1: this stops DNS-rebinding pages,
+  whose same-origin GET requests carry no ``Origin`` header;
+- security headers on every response: the interface cannot be framed by another site
+  (no clickjacking of the "Permitir" button), plus a strict Content-Security-Policy;
 - no secret ever goes to the browser (agent status never includes keys);
 - message sizes are capped.
 """
@@ -25,6 +29,29 @@ from jarvis.server.runtime import JarvisRuntime
 DEFAULT_PORT = 8300
 DEV_WEB_PORT = 5300
 WEB_DIST = PROJECT_ROOT / "web" / "dist"
+
+
+ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; "
+        "connect-src 'self' ws://127.0.0.1:* ws://localhost:*; "
+        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
+    ),
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "microphone=(self), camera=(), geolocation=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+
+
+def host_ok(host: str | None) -> bool:
+    if not host:
+        return False
+    name = host.rsplit(":", 1)[0] if not host.startswith("[") else host.split("]")[0] + "]"
+    return name.lower() in ALLOWED_HOSTS
 
 
 def default_origins(port: int = DEFAULT_PORT) -> set[str]:
@@ -57,10 +84,15 @@ def create_app(
         return origin is None or origin in origins
 
     @app.middleware("http")
-    async def check_origin(request: Request, call_next):
-        if not origin_ok(request.headers.get("origin")):
-            return JSONResponse({"detail": "origin not allowed"}, status_code=403)
-        return await call_next(request)
+    async def guard(request: Request, call_next):
+        if not host_ok(request.headers.get("host")):
+            response = JSONResponse({"detail": "host not allowed"}, status_code=403)
+        elif not origin_ok(request.headers.get("origin")):
+            response = JSONResponse({"detail": "origin not allowed"}, status_code=403)
+        else:
+            response = await call_next(request)
+        response.headers.update(SECURITY_HEADERS)
+        return response
 
     @app.get("/api/health")
     async def health() -> dict:
@@ -78,7 +110,9 @@ def create_app(
 
     @app.websocket("/ws")
     async def websocket(websocket: WebSocket) -> None:
-        if not origin_ok(websocket.headers.get("origin")):
+        if not host_ok(websocket.headers.get("host")) or not origin_ok(
+            websocket.headers.get("origin")
+        ):
             await websocket.close(code=1008)
             return
         await websocket.accept()

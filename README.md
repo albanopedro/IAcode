@@ -1,254 +1,143 @@
-# JARVIS AI
+# J.A.R.V.I.S.
 
-Assistente pessoal multimodelo inspirado no JARVIS. Conversa com vários agentes de IA
-**100% gratuitos** e troca de agente sozinho quando um atinge o limite ou falha.
+Assistente pessoal **por voz**, inspirado no JARVIS do Homem de Ferro, que conversa com
+vários agentes de IA **100% gratuitos** e troca de agente sozinho quando um atinge o
+limite, falha ou fica offline. Sem internet, um modelo **local** assume.
 
-> **Regra absoluta: custo zero.** `COST_MODE=FREE_ONLY` é o padrão e só pode ser mudado
-> pelo ambiente. Um agente pago fica bloqueado por padrão, e qualquer custo maior que zero
-> informado por um provedor bloqueia esse agente na hora.
+> **Regra absoluta: custo zero.** `COST_MODE=FREE_ONLY` é o padrão e só muda pelo
+> ambiente. Agentes pagos ficam bloqueados; um provedor que informar custo maior que zero
+> ou responder "402" é bloqueado na hora, e o bloqueio sobrevive a reinícios.
 
-## Estado
+## Destaques
 
-| Fase | Status |
-|---|---|
-| 1. Pesquisa e arquitetura | ✅ |
-| 2. Core: orchestrator, adapters, fallback, status | ✅ |
-| 3. Multi-agent: limites, ranking, health checks, persistência | ✅ |
-| 4. Voz: STT, TTS, streaming por frase, conversa contínua | ✅ |
-| 5. Interface web: orb, estados, voz no navegador, status dos agentes | ✅ |
-| 6. Memória: histórico, contexto resumido, lembranças de longo prazo | ✅ |
-| 7. Ferramentas seguras: permissões, confirmação, sandbox, auditoria | ✅ |
-| 8. IA local: modelo offline (MLX) e modo "só local" | ✅ (aguardando revisão) |
-| 9. Polimento | ⏳ |
+- **Multiagente com fallback inteligente:** o roteador pontua os agentes por
+  capacidade para a tarefa, prioridade, taxa de sucesso, latência e privacidade, e
+  respeita cotas por minuto e por dia antes de o provedor recusar.
+- **Voz local:** whisper.cpp (fala → texto) e `say` do macOS ou Piper (texto → fala),
+  conversa contínua, respostas curtas para ouvir.
+- **Interface** com orb animado, estados (ouvindo, pensando, falando), voz no navegador,
+  painel de agentes, histórico e memória.
+- **Memória:** histórico salvo, resumo automático de conversas longas e lembranças que
+  você pede ("JARVIS, lembre que…"), enviadas só a agentes que não retêm dados.
+- **Ferramentas seguras:** calculadora, Wikipédia, páginas web, tarefas, arquivos e
+  Python numa sandbox do macOS, com permissões, confirmação, limites e auditoria.
+- **IA local e modo privado:** modelo Qwen3-4B via MLX como reserva offline, e o modo
+  "🔒 só local", em que nada sai do Mac.
 
-## Como rodar (backend, texto)
+## Começar
+
+**Mais fácil (macOS):** dê dois cliques em **`JARVIS.command`**. Na primeira vez ele cria
+o ambiente e compila a interface; depois abre http://127.0.0.1:8300.
+
+**Manual:**
 
 ```bash
 cd backend
 python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m jarvis status          # saúde dos agentes (não gasta cota); --json
-.venv/bin/python -m jarvis chat            # conversa: /status, /limpar, /sair
-.venv/bin/python -m jarvis ask "Explique Docker em uma frase"
-.venv/bin/python -m jarvis unblock <id>    # libera um agente bloqueado por custo
+.venv/bin/pip install -e ".[server,voice,local,dev]"
+cd ../web && npm install && npm run build && cd ../backend
+.venv/bin/python -m jarvis doctor          # o que está pronto e o que falta
+.venv/bin/python -m jarvis local download  # opcional: modelo offline (~2,3 GB)
+.venv/bin/python -m jarvis serve --open    # interface em http://127.0.0.1:8300
 ```
 
-Testes: `.venv/bin/pytest`. O teste real e gratuito com o OpenCode é opcional:
-`JARVIS_LIVE_TESTS=1 .venv/bin/pytest -m live`.
-
-### Interface web
-
-```bash
-cd backend && .venv/bin/pip install -e ".[dev,voice,server]"
-cd ../web && npm install && npm run build
-cd ../backend && .venv/bin/python -m jarvis serve      # abra http://127.0.0.1:8300
-```
-
-Em desenvolvimento, rode `python -m jarvis serve` e, em outro terminal, `npm run dev`
-dentro de `web/`, e abra http://127.0.0.1:5300 (o Vite repassa `/api` e `/ws`).
-
-- **Orb** que muda com o estado: pronto, ouvindo, pensando, falando, sem conexão. Ele
-  reage ao volume do seu microfone ou da voz do JARVIS.
-- **Conversa por voz no navegador:** o microfone vira PCM 16 kHz e vai pelo WebSocket;
-  a voz volta como WAV, frase por frase. O microfone fica mudo enquanto o JARVIS fala.
-  Também tem botão de interromper.
-- **Conversa escrita**, com a opção de ouvir as respostas.
-- **Painel de agentes:** disponibilidade, cota restante, taxa de sucesso, latência,
-  qual agente respondeu e o modo de custo 🔒 `FREE_ONLY`.
-- **Segurança:**
-  - o servidor só escuta em `127.0.0.1`;
-  - só as páginas do próprio JARVIS são aceitas (verificação de `Origin`), então
-    outro site aberto no navegador não consegue usar o JARVIS;
-  - nenhuma chave vai para o navegador;
-  - mensagens têm tamanho limitado.
-
-### IA local (Fase 8)
-
-```bash
-cd backend && .venv/bin/pip install -e ".[local]"   # MLX-LM (Apple Silicon)
-.venv/bin/python -m jarvis local download             # uma vez: ~2,3 GB (Apache-2.0)
-.venv/bin/python -m jarvis ask --local "…"            # só o modelo local responde
-.venv/bin/python -m jarvis local status | remove
-```
-
-- **Modelo:** `Qwen3-4B-Instruct-2507` em 4 bits, via **MLX-LM**, que roda no chip do
-  Mac. Fica em `data/models/mlx`.
-- **Fallback offline automático:** os agentes online gratuitos têm prioridade. Sem
-  internet, ou com as cotas esgotadas, o modelo local assume sozinho.
-- **Modo "só local"** (`--local` na CLI ou o interruptor 🔒 na interface): só o modelo
-  do Mac responde.
-  - As mensagens trocadas nesse modo ficam **marcadas como privadas**.
-  - Elas nunca entram no contexto de uma pergunta feita depois a um agente online,
-    nem nos resumos automáticos.
-  - Testado: um agente online respondeu "não sei" sobre um dado dito no modo local.
-- **Servidor local travado:** só em `127.0.0.1`, numa porta aleatória, sem aceitar
-  páginas web (o padrão do MLX aceitaria qualquer site) e com o Hugging Face em modo
-  offline.
-  - Ele carrega o modelo só no primeiro uso, a primeira resposta leva cerca de 9 s.
-  - Depois de 10 minutos parado, ele se desliga e devolve os cerca de 3 GB de RAM.
-
-### Ferramentas (Fase 7)
-
-Os agentes **não acessam nada diretamente**. Quando precisam de uma ferramenta, pedem
-num formato de texto fixo (funciona com qualquer agente), e o JARVIS decide.
-
-| Ferramenta | Política padrão | O que faz |
-|---|---|---|
-| `calculator`, `current_time` | permitir | Contas exatas (sem `eval`) e data/hora |
-| `wikipedia` | permitir | Busca na API oficial e gratuita da Wikipédia |
-| `fetch_url` | **confirmar** | Lê páginas públicas. Bloqueia localhost e rede local, inclusive após redirecionamentos (SSRF) |
-| `add_task`, `list_tasks`, `complete_task` | permitir | Lista de tarefas local. `delete_task` **confirma** |
-| `list_dir`, `read_file` | só dentro de `allowed_dirs` | Desligadas até você liberar uma pasta. Nunca leem `.env`, chaves SSH, `.pem` etc. `read_file` **confirma** |
-| `run_python` | **sempre confirma** | Roda na sandbox do macOS: sem seus arquivos, sem internet, sem criar processos, com limite de CPU e de tempo |
-
-Regras que valem sempre:
-- Código **sempre** pede confirmação, mesmo se a configuração disser `allow`.
-- Depois de ler conteúdo de fora (página ou arquivo), **qualquer** ferramenta sensível
-  passa a pedir confirmação. É a proteção contra prompt injection.
-- O resultado das ferramentas vai para o agente marcado como **dado não confiável**.
-- Há limite de 4 ferramentas por pergunta e de 20 por minuto, e cada ferramenta tem
-  tempo máximo e saída cortada.
-- Toda chamada fica no log de auditoria (`data/audit.db`), visível com `jarvis tools log`.
-- Para confirmar:
-  - **na web**, aparece um diálogo com a ação exata; sem resposta em 60 s, a ação é negada;
-  - **no terminal**, a pergunta "Permitir? [s/N]";
-  - **na voz pelo terminal**, as ações que pedem confirmação são negadas.
-- Configure em `[tools]` no `agents.toml`; veja tudo com `jarvis tools list`.
-
-### Memória (Fase 6)
-
-Tudo fica num arquivo local, `data/memory.db` (SQLite). Nada vai para a nuvem, a não
-ser como contexto para o agente que responde.
-
-- **Histórico:** toda conversa é salva. Recarregar a página continua a última conversa;
-  "＋ Nova" começa outra, e as antigas podem ser reabertas ou apagadas.
-  - CLI: `jarvis chat --continue`, `jarvis history list | show <id> | clear`.
-- **Curto prazo:** só as últimas 20 mensagens vão para o agente.
-  - As mais antigas viram um **resumo**: 1 chamada grátis a cada 10 mensagens que saem
-    da janela.
-  - O prompt do resumo manda tratar a conversa como dados, não como instruções.
-- **Longo prazo:** fatos que **você** pede para guardar. O JARVIS nunca decide sozinho
-  lembrar algo.
-  - Exemplos: "JARVIS, lembre que eu prefiro respostas curtas", "Esqueça que…",
-    "O que você sabe sobre mim?".
-  - Esses comandos rodam **localmente**, sem gastar nenhuma chamada.
-  - "Esqueça tudo" não funciona por voz nem por texto (um erro de transcrição não pode
-    apagar tudo). Use o botão "apagar tudo", que pede confirmação, ou
-    `jarvis memory clear`, que pede "SIM".
-  - CLI: `jarvis memory list | add <texto> | forget <id> | clear`.
-- **Privacidade:** por padrão (`share_facts_with = "private"`), as lembranças só vão
-  para agentes **locais ou de retenção zero**. Os outros agentes respondem sem elas.
-
-### Voz (local e gratuita)
-
-```bash
-.venv/bin/pip install -e ".[dev,voice]"
-.venv/bin/python -m jarvis voice              # conversa por voz; diga "tchau JARVIS" para sair
-.venv/bin/python -m jarvis voice --tts piper  # voz de código aberto em vez do say do macOS
-.venv/bin/python -m jarvis speak "Olá, eu sou o JARVIS."
-.venv/bin/python -m jarvis transcribe gravacao.wav
-```
-
-- **Speech-to-Text:** whisper.cpp (`pywhispercpp`, licença MIT, acelerado por Metal),
-  modelo `large-v3-turbo-q5_0`.
-  - São cerca de 550 MB, baixados uma vez do repositório oficial para `data/models/`.
-  - Cada fala leva de 1,3 a 1,7 s no M4.
-- **Text-to-Speech:**
-  - `say` do macOS (voz Luciana, já vem instalado);
-  - ou **Piper** (código aberto, voz `pt_BR-faber-medium`, cerca de 60 MB, de
-    0,1 a 0,4 s por frase).
-- **Fluxo:** microfone → VAD (detecta início e fim da fala) → Whisper → orquestrador
-  → resposta curta → voz.
-  - A resposta é dividida em frases, e a próxima é sintetizada enquanto a atual toca.
-  - O microfone fica desligado enquanto o JARVIS fala (half-duplex).
-  - O contexto é o mesmo do modo texto.
-- Na primeira vez, o macOS pede permissão de microfone para o app do terminal.
-- Tudo é configurável na seção `[voice]` do `config/agents.toml`.
+Requisitos: macOS com Apple Silicon (para a IA local e a sandbox), Python 3.12+,
+Node 20+ e, para os modelos gratuitos do OpenCode Zen, o [OpenCode](https://opencode.ai)
+instalado.
 
 ### Agentes online opcionais
 
-Copie `.env.example` para `.env` e preencha só o que for usar. As contas devem estar no
-**plano grátis, sem cartão cadastrado**:
+Copie `.env.example` para `.env` e preencha só o que quiser. Use contas no **plano
+grátis, sem cartão cadastrado**:
 
-- `GROQ_API_KEY`: plano Free do Groq, com limite diário que reinicia.
-- `OPENROUTER_API_KEY`: só modelos `:free`, e nunca comprar créditos.
-- `MISTRAL_API_KEY`: plano Experiment (verificação por telefone, sem cartão). Por
-  padrão os dados podem ser usados para treino; dá para desligar no console.
-- `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN`: plano Workers Free, com 10.000
-  Neurons por dia. Passado o limite, os pedidos falham em vez de cobrar.
+| Variável | Serviço | Limite gratuito |
+|---|---|---|
+| `GROQ_API_KEY` | Groq (plano Free) | ~30/min, ~1.000/dia por modelo |
+| `OPENROUTER_API_KEY` | OpenRouter (só modelos `:free`) | 20/min, 50/dia; nunca compre créditos |
+| `MISTRAL_API_KEY` | Mistral (plano Experiment) | ~1/s; pode treinar com seus dados (dá para desligar) |
+| `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN` | Workers AI (Free) | 10.000 Neurons/dia; passou disso, falha em vez de cobrar |
 
-Sem chave, o agente aparece como ⚪ `unconfigured` e o JARVIS segue com os outros.
+Sem chave, o agente fica ⚪ "sem chave" e o JARVIS segue com os outros.
 
-## Arquitetura
+## Comandos
 
-```text
-Usuário ─► Orchestrator ─► classifica a tarefa (chat / code / math / research)
-                │
-                ├─► Agent Manager: quem está disponível? (cooldown, cota, erros, bloqueios)
-                ├─► Router: pontua os candidatos (capacidade > prioridade, penaliza falhas/lentidão)
-                ├─► Cost Guard: só local / free / free_with_limits; custo > 0 ⇒ bloqueio
-                └─► tenta o melhor; se falhar, registra e tenta o próximo
-                         │
-        ┌────────────────┼──────────────────────┐
-   OpenCode (Zen free)  Groq (free plan)   OpenRouter (:free)   … novos adapters
+| Comando | O que faz |
+|---|---|
+| `jarvis serve [--open] [--port N]` | Interface web (só em 127.0.0.1) |
+| `jarvis chat [--continue] [--local]` | Conversa no terminal (`/status`, `/limpar`, `/sair`) |
+| `jarvis ask "…" [--local]` | Uma pergunta |
+| `jarvis voice [--tts piper] [--once]` | Conversa por voz no terminal |
+| `jarvis status [--json]` | Saúde e cotas dos agentes (não gasta cota) |
+| `jarvis doctor` | Diagnóstico da instalação (nunca mostra chaves) |
+| `jarvis memory list \| add \| forget \| clear` | Lembranças de longo prazo |
+| `jarvis history list \| show \| clear` | Conversas salvas |
+| `jarvis tools list \| log` | Ferramentas, políticas e log de auditoria |
+| `jarvis local status \| download \| remove` | Modelo offline |
+| `jarvis unblock <id>` | Libera um agente bloqueado por custo |
+| `jarvis speak "…"` / `jarvis transcribe a.wav` | Testar a voz |
+
+## Como funciona
+
+```mermaid
+flowchart LR
+    U([Você: voz ou texto]) --> UI[Interface / CLI]
+    UI --> A[Assistente<br/>memória · comandos locais]
+    A --> T[Ferramentas<br/>política · confirmação · sandbox]
+    A --> O[Orquestrador]
+    T --> O
+    O --> R[Router + Agent Manager<br/>cotas · cooldown · ranking]
+    R --> C{Cost Guard<br/>FREE_ONLY}
+    C --> Z[OpenCode Zen<br/>modelos grátis]
+    C --> G[Groq / OpenRouter /<br/>Mistral / Cloudflare]
+    C --> L[Modelo local MLX<br/>offline]
 ```
 
-- `backend/jarvis/core/`: tipos, erros, cost guard, agent manager, classifier, router,
-  conversation e orchestrator.
-- `backend/jarvis/agents/`:
-  - `opencode/`: sandbox, servidor privado, runtime e adapter.
-  - `openai_compat/`: adapter genérico para APIs no formato OpenAI.
-  - `factory.py`: monta os agentes a partir da configuração.
-- `config/agents.toml`: agentes, prioridades e capacidades. **Não guarda segredos.**
-- O histórico da conversa pertence ao JARVIS, e não ao agente. Por isso trocar de agente
-  no meio da conversa não perde o contexto.
+Os detalhes de cada camada estão em [docs/architecture.md](docs/architecture.md) e o
+modelo de segurança está em [SECURITY.md](SECURITY.md).
 
-### Limites, ranking e saúde (Fase 3)
+## Privacidade, em resumo
 
-- **Limites:**
-  - por dia (`daily_limit`) e por minuto (`rpm_limit`), respeitados localmente antes
-    do provedor responder com 429;
-  - a cota informada pelo próprio provedor nos cabeçalhos (`x-ratelimit-*`) tem
-    prioridade;
-  - `quota_group`: modelos que dividem a cota da mesma conta (por exemplo, os
-    gratuitos do OpenRouter) dividem também os contadores.
-- **Persistência** (`data/jarvis.db`, só contadores e estados, nunca conversas nem
-  chaves):
-  - o uso do dia e os cooldowns sobrevivem a um reinício;
-  - **um agente bloqueado por custo continua bloqueado** até um
-    `jarvis unblock <id>` explícito.
-- **Ranking:**
-  - prioridade, mais qualidade por tarefa (`quality` no `agents.toml`);
-  - menos penalidades por taxa de sucesso recente, falhas seguidas e latência;
-  - bônus de privacidade;
-  - agentes cuja janela de contexto não comporta a conversa ficam de fora.
-- **Saúde:** no `jarvis chat`, um monitor em segundo plano verifica todos os
-  agentes a cada `health_interval` segundos, sem gastar cota. Um agente offline
-  volta sozinho quando a verificação passa.
+- **Tudo fica no seu Mac:** histórico, lembranças, contadores e auditoria ficam em
+  `data/`, uma pasta que o git ignora. As chaves ficam só no `.env`.
+- **O que sai:** só a conversa, e só para o agente que responde. As lembranças de longo
+  prazo vão apenas para agentes de retenção zero ou locais.
+- **Modo "🔒 só local":** nada sai do Mac, nem depois. As mensagens desse modo nunca
+  entram no contexto de agentes online nem nos resumos.
+- **Voz:** fala → texto e texto → fala rodam localmente.
 
-### Como o OpenCode é usado (e por quê)
+## Desenvolvimento
 
-O OpenCode Zen só libera o plano grátis para **o próprio cliente OpenCode, com as
-ferramentas do agente declaradas**. Pedidos feitos pela API HTTP recebem
-`FreeTierError: can only be used from within OpenCode`. O JARVIS respeita isso e não
-tenta contornar. Por isso ele usa o cliente oficial, `opencode run --server`, preso
-numa sandbox:
+```bash
+cd backend && .venv/bin/pytest            # testes (os reais, opcionais: JARVIS_LIVE_TESTS=1 -m live)
+.venv/bin/ruff check . && .venv/bin/ruff format --check .
+cd ../web && npm test && npx tsc --noEmit && npm run build
+```
 
-1. **Casa própria do OpenCode** (XDG config/data/state temporários). O JARVIS nunca
-   vê as suas credenciais nem o seu histórico. O único provedor é o Zen, com a chave
-   anônima `public`, então não há o que cobrar. A verificação recusa qualquer outra
-   situação.
-2. **Ambiente mínimo** (allowlist). Chaves como `OPENAI_API_KEY` e variáveis
-   `OPENCODE_*` do seu shell não chegam ao OpenCode.
-3. **Pasta de trabalho vazia**, também definida como `PWD`. O OpenCode usa o `PWD`
-   para escolher a pasta do projeto.
-4. **Toda ferramenta pede aprovação** (`ask` como última regra do agente `jarvis`).
-   No modo não interativo, o próprio OpenCode rejeita cada uma. O `--auto` nunca é
-   usado. Se alguma ferramenta chegar a rodar, a resposta é descartada e o agente,
-   bloqueado.
-5. **Só modelos grátis**: nome `*-free` ou `big-pickle` **e** preço 0 em todas as faixas.
+Para desenvolver a interface: rode `jarvis serve` e, em `web/`, `npm run dev`; a
+interface fica em http://127.0.0.1:5300, e o Vite repassa `/api` e `/ws`.
 
-Verificado na prática:
-- um pedido para ler um arquivo-isca e outro para rodar `ls ~` foram rejeitados pelo
-  OpenCode;
-- todas as respostas tiveram custo 0.
+Estrutura:
+
+```text
+backend/jarvis/
+  core/      orquestrador, router, agent manager, cost guard, conversa, tipos
+  agents/    opencode (sandbox), openai_compat (Groq…), local (MLX), factory
+  memory/    histórico SQLite, resumo, lembranças, assistente
+  tools/     protocolo, executor, auditoria, ferramentas (calculadora, web, arquivos, sandbox…)
+  voice/     VAD, whisper.cpp, say/Piper, sessão de voz
+  server/    FastAPI + WebSocket
+web/src/     React: orb, conversa, agentes, memória, confirmações
+config/agents.toml   agentes, limites, voz, memória, ferramentas, IA local (sem segredos)
+```
+
+## Limitações conhecidas
+
+- Os modelos gratuitos do OpenCode Zen são "por tempo limitado" e mudam com frequência;
+  o JARVIS descobre a lista a cada verificação.
+- Não dá para interromper o JARVIS falando (sem cancelamento de eco), e o streaming é
+  por frase, não por token.
+- O VAD por energia sofre em ambiente barulhento. O wake word ("Hey JARVIS") e a
+  automação do sistema ficaram para depois.
+- O modelo local (4B) é mais fraco que os grandes online.
+
+Histórico de mudanças: [CHANGELOG.md](CHANGELOG.md).

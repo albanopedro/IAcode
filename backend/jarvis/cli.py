@@ -59,8 +59,7 @@ def open_conversation(assistant: Assistant, resume: bool = False) -> Conversatio
 async def shutdown(manager: AgentManager, assistant: Assistant) -> None:
     await assistant.wait_background()  # let a pending summary finish
     await manager.close()
-    if assistant.memory is not None:
-        assistant.memory.close()
+    await assistant.close()
 
 
 def format_status(status: AgentStatus) -> str:
@@ -138,7 +137,7 @@ def print_failure(error: AllAgentsFailedError) -> None:
 
 
 async def cmd_status(as_json: bool = False) -> int:
-    manager, _, _ = build()
+    manager, assistant, _ = build()
     try:
         await manager.refresh_health(force=True)
         if as_json:
@@ -150,12 +149,12 @@ async def cmd_status(as_json: bool = False) -> int:
         else:
             print_statuses(manager)
     finally:
-        await manager.close()
+        await shutdown(manager, assistant)
     return 0
 
 
 async def cmd_unblock(agent_id: str) -> int:
-    manager, _, _ = build()
+    manager, assistant, _ = build()
     try:
         if agent_id not in {p.id for p in manager.providers}:
             print(f"agente desconhecido: {agent_id}")
@@ -166,7 +165,7 @@ async def cmd_unblock(agent_id: str) -> int:
         print(f"{agent_id} não estava bloqueado, ou é pago (bloqueado pelo COST_MODE).")
         return 1
     finally:
-        await manager.close()
+        await shutdown(manager, assistant)
 
 
 async def cmd_ask(question: str, local_only: bool = False) -> int:
@@ -314,7 +313,9 @@ def cmd_tools(action: str) -> int:
     settings = load_settings()
     if action == "list":
         policies = {k: Policy(v) for k, v in settings.tools.policies.items()}
-        executor = ToolExecutor(all_tools(settings, _memory_store()), policies=policies)
+        store = _memory_store()
+        executor = ToolExecutor(all_tools(settings, store), policies=policies)
+        store.close()
         print(
             f"ferramentas {'ligadas' if settings.tools.enabled else 'DESLIGADAS'}"
             f" · até {settings.tools.max_steps} por pergunta"
@@ -399,7 +400,16 @@ def main(argv: list[str] | None = None) -> int:
     transcribe.add_argument("path")
     serve = sub.add_parser("serve", help="run the web interface server (127.0.0.1 only)")
     serve.add_argument("--port", type=int, default=8300)
+    serve.add_argument("--open", action="store_true", help="open the interface in the browser")
+    sub.add_parser("doctor", help="check what is installed, configured and downloaded")
     args = parser.parse_args(argv)
+
+    if args.command == "doctor":
+        from jarvis.doctor import Level, render, run_checks
+
+        checks = run_checks(load_settings())
+        print(render(checks))
+        return 1 if any(c.level is Level.FAIL for c in checks) else 0
 
     if args.command == "serve":
         try:
@@ -410,6 +420,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"servidor indisponível ({exc}). Instale com: pip install -e '.[server]'")
             return 2
         app = create_app(allowed_origins=default_origins(args.port))
+        url = f"http://127.0.0.1:{args.port}"
+        print(f"JARVIS em {url}  (Ctrl+C para encerrar)")
+        if args.open:
+            import threading
+            import webbrowser
+
+            threading.Timer(1.5, webbrowser.open, [url]).start()
         # Never 0.0.0.0: JARVIS must not be reachable from the network.
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
         return 0

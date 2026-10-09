@@ -137,7 +137,7 @@ class PythonSandboxTool(Tool):
                 output, _ = await asyncio.wait_for(proc.communicate(), WALL_SECONDS)
             except TimeoutError:
                 proc.kill()
-                await proc.wait()
+                await proc.communicate()  # drain and close the pipes
                 return ToolResult(
                     f"tempo esgotado ({WALL_SECONDS:.0f}s): o código foi interrompido", ok=False
                 )

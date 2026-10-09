@@ -29,6 +29,7 @@ from jarvis.voice.tts import TTSProvider  # noqa: E402
 from tests.fakes import FakeAgent, FakeClock  # noqa: E402
 
 ORIGIN = "http://127.0.0.1:5300"
+WS_URL = "ws://127.0.0.1:8300/ws"
 RATE = 16_000
 
 
@@ -61,7 +62,8 @@ def make_client(agents, *, stt_texts=(), tmp_path=None, memory=None, tools=None)
     voice = VoiceEngines(ScriptedSTT(stt_texts), {"say": tts, "piper": tts})
     assistant = Assistant(Orchestrator(manager), memory, summarize=False, tools=tools)
     runtime = JarvisRuntime(settings, manager, assistant, voice=voice)
-    return TestClient(create_app(runtime, web_dist=None)), tts
+    app = create_app(runtime, web_dist=None)
+    return TestClient(app, base_url="http://127.0.0.1:8300"), tts
 
 
 def receive_until(ws, predicate, limit=60):
@@ -115,7 +117,7 @@ def test_foreign_origins_are_rejected():
         assert client.get("/api/status", headers={"origin": ORIGIN}).status_code == 200
         with (
             pytest.raises(WebSocketDisconnect) as info,
-            client.websocket_connect("/ws", headers=evil) as ws,
+            client.websocket_connect(WS_URL, headers=evil) as ws,
         ):
             ws.receive()
         assert info.value.code == 1008
@@ -134,7 +136,7 @@ def test_no_secrets_in_status(monkeypatch):
 def test_text_chat_keeps_context_and_reports_the_agent():
     agent = FakeAgent("a", ["Docker é uma plataforma.", "Use o Docker Desktop."])
     client, _ = make_client([agent])
-    with client, client.websocket_connect("/ws", headers={"origin": ORIGIN}) as ws:
+    with client, client.websocket_connect(WS_URL, headers={"origin": ORIGIN}) as ws:
         hello = receive_until(ws, is_type("state", state="idle"))
         assert hello[0]["type"] == "hello"
         assert any(m.get("type") == "agents" for m in hello)
@@ -156,7 +158,7 @@ def test_text_chat_keeps_context_and_reports_the_agent():
 
 def test_text_answer_can_be_spoken_as_wav():
     client, tts = make_client([FakeAgent("a", ["Olá. Tudo bem?"])])
-    with client, client.websocket_connect("/ws", headers={"origin": ORIGIN}) as ws:
+    with client, client.websocket_connect(WS_URL, headers={"origin": ORIGIN}) as ws:
         receive_until(ws, is_type("state", state="idle"))
         ws.send_json({"type": "text", "text": "oi", "speak": True})
         seen = receive_until(ws, lambda m: isinstance(m, bytes))
@@ -168,7 +170,7 @@ def test_text_answer_can_be_spoken_as_wav():
 
 def test_failures_and_bad_messages_become_error_events():
     client, _ = make_client([FakeAgent("a", [ProviderUnavailableError("down")])])
-    with client, client.websocket_connect("/ws", headers={"origin": ORIGIN}) as ws:
+    with client, client.websocket_connect(WS_URL, headers={"origin": ORIGIN}) as ws:
         receive_until(ws, is_type("state", state="idle"))
         ws.send_json({"type": "text", "text": "oi"})
         error = receive_until(ws, is_type("error"))[-1]
@@ -187,7 +189,7 @@ def test_failures_and_bad_messages_become_error_events():
 def test_voice_loop_over_websocket():
     agent = FakeAgent("a", ["Docker é uma plataforma."])
     client, tts = make_client([agent], stt_texts=["JARVIS, explique Docker."])
-    with client, client.websocket_connect("/ws", headers={"origin": ORIGIN}) as ws:
+    with client, client.websocket_connect(WS_URL, headers={"origin": ORIGIN}) as ws:
         receive_until(ws, is_type("state", state="idle"))
         ws.send_json({"type": "voice_start"})
         receive_until(ws, is_type("state", state="listening"))
@@ -212,7 +214,7 @@ def test_voice_loop_over_websocket():
 def test_audio_is_ignored_unless_the_voice_loop_runs():
     agent = FakeAgent("a")
     client, _ = make_client([agent], stt_texts=["nunca"])
-    with client, client.websocket_connect("/ws", headers={"origin": ORIGIN}) as ws:
+    with client, client.websocket_connect(WS_URL, headers={"origin": ORIGIN}) as ws:
         receive_until(ws, is_type("state", state="idle"))
         for frame in pcm_frames():
             ws.send_bytes(frame)
@@ -240,7 +242,7 @@ class KeepOpenStore(MemoryStore):
 
 
 def connect(client):
-    ws = client.websocket_connect("/ws", headers={"origin": ORIGIN})
+    ws = client.websocket_connect(WS_URL, headers={"origin": ORIGIN})
     return ws
 
 
@@ -369,3 +371,33 @@ def test_local_only_switch_keeps_messages_on_this_mac():
         assert receive_until(ws, is_type("answer"))[-1]["agent_id"] == "online"
     assert [m.content for m in online.calls[0].messages if m.role == "user"][-1] == "pergunta comum"
     assert all("segredo" not in m.content for m in online.calls[0].messages)
+
+
+# -- hardening (Phase 9) ------------------------------------------------------------------
+
+
+def test_dns_rebinding_hosts_are_rejected():
+    client, _ = make_client([FakeAgent("a")])
+    with client:
+        # A rebinding page makes same-origin GETs (no Origin header) with its own Host.
+        assert client.get("/api/status", headers={"host": "evil.example:8300"}).status_code == 403
+        assert client.get("/api/status", headers={"host": "localhost:8300"}).status_code == 200
+        with (
+            pytest.raises(WebSocketDisconnect) as info,
+            client.websocket_connect(WS_URL, headers={"host": "evil.example"}) as ws,
+        ):
+            ws.receive()
+        assert info.value.code == 1008
+
+
+def test_security_headers_block_framing_and_sniffing():
+    client, _ = make_client([FakeAgent("a")])
+    with client:
+        for response in (
+            client.get("/api/health"),
+            client.get("/api/status", headers={"origin": "https://evil.example"}),  # also on 403
+        ):
+            assert response.headers["x-frame-options"] == "DENY"
+            assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert response.headers["referrer-policy"] == "no-referrer"

@@ -480,3 +480,14 @@ async def test_sandbox_blocks_escapes(code, tmp_path):
 async def test_sandbox_stops_infinite_loops():
     result = await sandbox.run({"code": "while True: pass"}, ToolContext())
     assert not result.ok and ("CPU" in result.text or "tempo" in result.text)
+
+
+@respx.mock
+async def test_fetch_url_checks_the_address_actually_connected(public_dns, monkeypatch):
+    """DNS rebinding: the name looked public, but the connection went to the local network."""
+    from jarvis.tools.builtin import web
+
+    respx.get("https://rebind.example/").respond(200, text="segredo da rede local")
+    monkeypatch.setattr(web, "_peer_address", lambda response: "192.168.0.1")
+    with pytest.raises(ToolError, match="rede local"):
+        await FetchUrlTool().run({"url": "https://rebind.example/"}, ToolContext())

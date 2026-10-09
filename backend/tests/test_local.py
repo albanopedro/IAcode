@@ -37,6 +37,14 @@ class FakeServer(MLXServer):
         pass
 
 
+@pytest.fixture(autouse=True)
+def mlx_present(monkeypatch):
+    """These tests fake the server; they must not depend on MLX-LM being installed (CI)."""
+    from jarvis.agents.local import mlx
+
+    monkeypatch.setattr(mlx, "mlx_available", lambda: None)
+
+
 def downloaded_store(tmp_path):
     store = LocalModelStore(tmp_path)
     path = store.path(REPO)
@@ -223,3 +231,12 @@ async def test_summaries_never_include_private_turns():
     assert await maybe_summarize(orch, conversation)
     prompt = online.calls[0].messages[-1].content
     assert "segredo 0" not in prompt and "segredo 5" in prompt
+
+
+async def test_missing_mlx_is_reported_as_unconfigured(tmp_path, monkeypatch):
+    from jarvis.agents.local import mlx
+
+    monkeypatch.setattr(mlx, "mlx_available", lambda: "MLX-LM não instalado")
+    agent = LocalMLXAgent(REPO, downloaded_store(tmp_path), server=FakeServer())
+    report = await agent.check_health()
+    assert report.health is Health.UNCONFIGURED and "MLX-LM" in report.detail

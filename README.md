@@ -1,5 +1,7 @@
 # J.A.R.V.I.S.
 
+[![CI](https://github.com/albanopedro/IAcode/actions/workflows/ci.yml/badge.svg)](https://github.com/albanopedro/IAcode/actions/workflows/ci.yml)
+
 Assistente pessoal **por voz**, inspirado no JARVIS do Homem de Ferro, que conversa com
 vários agentes de IA **100% gratuitos** e troca de agente sozinho quando um atinge o
 limite, falha ou fica offline. Sem internet, um modelo **local** assume.
@@ -115,6 +117,10 @@ cd backend && .venv/bin/pytest            # testes (os reais, opcionais: JARVIS_
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 cd ../web && npm test && npx tsc --noEmit && npm run build
 ```
+
+O **CI** (GitHub Actions, gratuito em repositório público) roda lint, testes e build a
+cada push, no Linux. Lá, os testes exclusivos do macOS (sandbox, `say`, MLX) pulam
+sozinhos.
 
 Para desenvolver a interface: rode `jarvis serve` e, em `web/`, `npm run dev`; a
 interface fica em http://127.0.0.1:5300, e o Vite repassa `/api` e `/ws`.

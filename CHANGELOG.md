@@ -1,5 +1,12 @@
 # Changelog
 
+## Não lançado — CI
+
+- GitHub Actions (`.github/workflows/ci.yml`): backend (ruff, pytest com cobertura) e
+  web (tipos, Vitest, build, `npm audit`). Gratuito, só leitura, sem segredos.
+- Os testes do modelo local e do wake word não dependem mais de extras opcionais
+  instalados (achado ao simular o ambiente do CI).
+
 ## 1.1.0 — Wake word
 
 - "Hey Jarvis" com openWakeWord (local, ~9 MB): `jarvis voice --wake` ou o interruptor

@@ -103,6 +103,7 @@ MODELS = PROJECT_ROOT / "data" / "models" / "wakeword"
 async def test_real_model_wakes_on_hey_jarvis_only():
     import shutil
 
+    pytest.importorskip("openwakeword")
     if shutil.which("say") is None:
         pytest.skip("macOS say not available")
     from jarvis.voice.tts import MacSayTTS

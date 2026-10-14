@@ -85,7 +85,7 @@ class Orchestrator:
         ``local_only`` restricts the choice to agents running on this machine, so the
         message never leaves it (offline or private mode).
         """
-        await self.manager.refresh_health()
+        await self.manager.ensure_health()
         # Rank with the largest possible prompt, so the context-window check is safe.
         extra = "\n\n".join(p for p in (self.system_prompt, private_context, style) if p)
         largest = AIRequest(messages=[Message(role="system", content=extra), *messages], task=task)

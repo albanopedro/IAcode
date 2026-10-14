@@ -41,6 +41,9 @@ DEFAULT_RATE_LIMIT_COOLDOWN = 60.0
 BACKOFF_BASE = 15.0
 BACKOFF_MAX = 600.0
 HEALTH_TTL = 60.0
+# A request waits at most this long for agents that were never checked (first use). Agents
+# whose check is slower stay out of that request; their check keeps running in the background.
+FIRST_CHECK_TIMEOUT = 10.0
 LATENCY_ALPHA = 0.3  # weight of the newest sample in the moving average
 OUTCOME_WINDOW = 20  # calls used for the success rate
 MINUTE = 60.0
@@ -85,6 +88,7 @@ class AgentManager:
         self._clock = clock
         self._providers: dict[str, AIProvider] = {}
         self._state: dict[str, RuntimeState] = {}
+        self._checks: dict[str, asyncio.Task] = {}  # health checks in flight, one per agent
         for provider in providers:
             self.register(provider)
 
@@ -163,6 +167,7 @@ class AgentManager:
     # -- health ---------------------------------------------------------------
 
     async def refresh_health(self, *, force: bool = False) -> None:
+        """Check the stale agents (all of them with ``force``) and wait for the results."""
         now = self._clock()
         due = [
             p
@@ -170,24 +175,71 @@ class AgentManager:
             if self._state[p.id].health is not Health.BLOCKED
             and (force or self._is_stale(p.id, now))
         ]
-        reports = await asyncio.gather(*(self._safe_check(p) for p in due))
-        for provider, report in zip(due, reports, strict=True):
+        if due:
+            await asyncio.gather(*(self._start_check(p) for p in due))
+
+    async def ensure_health(self, first_check_wait: float = FIRST_CHECK_TIMEOUT) -> None:
+        """What a request needs before choosing an agent, without waiting for slow checks.
+
+        - agents never checked are awaited, but only up to ``first_check_wait`` seconds; if
+          that leaves no agent available, it keeps waiting until one is (or all are done);
+        - agents with an old check are refreshed in the background: the request uses what
+          it knew, and the next one sees the new result. A provider that hangs can no
+          longer delay every answer (the background monitor keeps health fresh anyway).
+        """
+        now = self._clock()
+        first: list[asyncio.Task] = []
+        for provider in self._providers.values():
             state = self._state[provider.id]
-            state.checked_at = now
-            if state.health is Health.BLOCKED:
+            if state.health is Health.BLOCKED or not self._is_stale(provider.id, now):
                 continue
-            if report.health is Health.AVAILABLE:
-                # A healthy check does not end an active cooldown.
-                state.health = (
-                    Health.COOLDOWN if self._in_cooldown(state, now) else Health.AVAILABLE
-                )
-            elif report.health is Health.BLOCKED:
-                # Re-detected on every start, so not persisted (unlike call-time blocks).
-                state.health = Health.BLOCKED
-                state.last_error = report.detail or "blocked by health check"
-            else:
-                state.health = report.health
-                state.last_error = report.detail or state.last_error
+            task = self._start_check(provider)
+            if state.checked_at is None:
+                first.append(task)
+        if not first:
+            return
+        _, pending = await asyncio.wait(first, timeout=first_check_wait)
+        while pending and not self._any_available():
+            _, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+    def _any_available(self) -> bool:
+        return any(state.health is Health.AVAILABLE for state in self._state.values())
+
+    def _start_check(self, provider: AIProvider) -> asyncio.Task:
+        """The check of ``provider`` in flight, or a new one (never two at once)."""
+        task = self._checks.get(provider.id)
+        if task is None or task.done():
+            task = asyncio.create_task(self._check_one(provider), name=f"health-{provider.id}")
+            self._checks[provider.id] = task
+            task.add_done_callback(lambda done, key=provider.id: self._check_finished(key, done))
+        return task
+
+    def _check_finished(self, agent_id: str, task: asyncio.Task) -> None:
+        if self._checks.get(agent_id) is task:
+            del self._checks[agent_id]
+        if not task.cancelled():
+            task.exception()  # mark it retrieved: a broken check must not spam warnings
+
+    async def _check_one(self, provider: AIProvider) -> None:
+        report = await self._safe_check(provider)
+        self._apply_report(provider.id, report)
+
+    def _apply_report(self, agent_id: str, report: HealthReport) -> None:
+        now = self._clock()
+        state = self._state[agent_id]
+        state.checked_at = now
+        if state.health is Health.BLOCKED:
+            return
+        if report.health is Health.AVAILABLE:
+            # A healthy check does not end an active cooldown.
+            state.health = Health.COOLDOWN if self._in_cooldown(state, now) else Health.AVAILABLE
+        elif report.health is Health.BLOCKED:
+            # Re-detected on every start, so not persisted (unlike call-time blocks).
+            state.health = Health.BLOCKED
+            state.last_error = report.detail or "blocked by health check"
+        else:
+            state.health = report.health
+            state.last_error = report.detail or state.last_error
 
     def _is_stale(self, agent_id: str, now: float) -> bool:
         checked = self._state[agent_id].checked_at
@@ -404,6 +456,10 @@ class AgentManager:
         return [self.status(agent_id) for agent_id in self._providers]
 
     async def close(self) -> None:
+        checks = list(self._checks.values())
+        for check in checks:
+            check.cancel()
+        await asyncio.gather(*checks, return_exceptions=True)
         await asyncio.gather(*(p.close() for p in self._providers.values()), return_exceptions=True)
         if self.store is not None:
             self.store.close()

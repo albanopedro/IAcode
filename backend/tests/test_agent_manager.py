@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from jarvis.core.agent_manager import BACKOFF_BASE, BACKOFF_MAX, AgentManager
@@ -11,6 +13,19 @@ from jarvis.core.errors import (
 )
 from jarvis.core.types import AIResponse, Capability, CostClass, Health
 from tests.fakes import FakeAgent, FakeClock
+
+
+class GatedAgent(FakeAgent):
+    """Its health check hangs while ``gate`` is closed (a slow or unreachable provider)."""
+
+    def __init__(self, agent_id, **kwargs):
+        super().__init__(agent_id, **kwargs)
+        self.gate = asyncio.Event()
+        self.gate.set()
+
+    async def check_health(self):
+        await self.gate.wait()
+        return await super().check_health()
 
 
 def make(*agents, clock=None):
@@ -159,3 +174,66 @@ async def test_crashing_health_check_counts_as_offline():
     await manager.refresh_health()
     assert manager.status("b").health is Health.OFFLINE
     assert "boom" in manager.status("b").last_error
+
+
+# -- a request never waits for slow health checks -------------------------------------
+
+
+async def test_request_does_not_wait_for_a_stale_check():
+    clock = FakeClock()
+    agent = GatedAgent("a")
+    manager = make(agent, clock=clock)
+    await manager.ensure_health()  # first use: the check is awaited
+    assert [p.id for p in manager.candidates()] == ["a"]
+
+    agent.gate.clear()  # the provider stops answering...
+    agent.health = Health.OFFLINE
+    clock.advance(61)  # ...and the old check expires
+    await asyncio.wait_for(manager.ensure_health(), 1)  # must not hang
+    assert [p.id for p in manager.candidates()] == ["a"]  # last known state is used
+
+    agent.gate.set()
+    await manager.refresh_health(force=True)  # joins the check already in flight
+    assert agent.health_checks == 2
+    assert manager.status("a").health is Health.OFFLINE  # the next request sees it
+
+
+async def test_first_check_wait_is_bounded_and_the_slow_check_finishes_later():
+    slow, fast = GatedAgent("slow"), FakeAgent("fast")
+    slow.gate.clear()
+    manager = make(slow, fast)
+    await manager.ensure_health(first_check_wait=0.05)
+    assert [p.id for p in manager.candidates()] == ["fast"]
+    assert manager.status("slow").health is Health.UNKNOWN
+
+    slow.gate.set()
+    await manager.refresh_health(force=True)
+    assert sorted(p.id for p in manager.candidates()) == ["fast", "slow"]
+
+
+async def test_keeps_waiting_when_no_agent_is_available_yet():
+    slow = GatedAgent("slow")
+    slow.gate.clear()
+    manager = make(slow)
+    waiting = asyncio.create_task(manager.ensure_health(first_check_wait=0.05))
+    await asyncio.sleep(0.15)
+    assert not waiting.done()  # nothing to answer with: better to wait than to fail
+    slow.gate.set()
+    await asyncio.wait_for(waiting, 1)
+    assert [p.id for p in manager.candidates()] == ["slow"]
+
+
+async def test_concurrent_refreshes_share_one_check():
+    agent = FakeAgent("a")
+    manager = make(agent)
+    await asyncio.gather(manager.refresh_health(force=True), manager.refresh_health(force=True))
+    assert agent.health_checks == 1
+
+
+async def test_close_cancels_checks_still_in_flight():
+    stuck = GatedAgent("stuck")
+    stuck.gate.clear()
+    manager = make(stuck, FakeAgent("fast"))
+    await manager.ensure_health(first_check_wait=0.01)
+    await asyncio.wait_for(manager.close(), 1)  # must not wait for the hung check
+    assert stuck.closed

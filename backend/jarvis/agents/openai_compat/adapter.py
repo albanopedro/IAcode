@@ -30,6 +30,7 @@ from jarvis.core.provider import AIProvider, HealthReport
 from jarvis.core.types import AgentInfo, AIRequest, AIResponse, Health
 
 _PLACEHOLDER = re.compile(r"\$\{([A-Z0-9_]+)\}")
+HEALTH_TIMEOUT = 10.0  # the /models check is cheap: a provider that takes longer is "offline"
 
 
 class OpenAICompatAgent(AIProvider):
@@ -94,7 +95,9 @@ class OpenAICompatAgent(AIProvider):
             return HealthReport(Health.AVAILABLE, "key present (not verified)")
         try:
             # Listing models does not spend generation quota.
-            response = await self._client.get(f"{base_url}/models", headers=headers)
+            response = await self._client.get(
+                f"{base_url}/models", headers=headers, timeout=HEALTH_TIMEOUT
+            )
         except httpx.HTTPError as exc:
             return HealthReport(Health.OFFLINE, f"cannot reach {self.info.provider}: {exc}")
         if response.status_code in (401, 403):

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import socket
+import time
 
 import pytest
 import respx
@@ -491,6 +492,31 @@ async def test_sandbox_blocks_escapes(code, tmp_path):
     assert not result.ok
     assert "ESCAPOU" not in result.text and "root:" not in result.text
     assert not await asyncio.to_thread(os.path.exists, "/private/tmp/jarvis-escape.txt")
+
+
+def test_the_confirmation_shows_all_of_the_code_that_will_run():
+    code = "\n".join(f"print({i})  # linha {i}" for i in range(400))  # far past 400 characters
+    assert len(code) > 4000
+    description = PythonSandboxTool().describe_call({"code": code})
+    assert code in description and "…" not in description
+
+
+@needs_sandbox
+async def test_sandbox_stops_runaway_output_without_buffering_it():
+    started = time.monotonic()
+    result = await sandbox.run({"code": "while True: print('x' * 1000)"}, ToolContext())
+    assert time.monotonic() - started < 5  # stopped at the cap, not at the 10 s limit
+    assert result.ok and "saída cortada" in result.text
+    assert len(result.text.encode()) < 9000
+
+
+@needs_sandbox
+async def test_sandbox_limits_memory():
+    code = "chunks = []\nwhile True:\n    chunks.append(bytearray(b'x' * (16 << 20)))"
+    started = time.monotonic()
+    result = await sandbox.run({"code": code}, ToolContext())
+    assert not result.ok and "memória" in result.text
+    assert time.monotonic() - started < 8
 
 
 @needs_sandbox

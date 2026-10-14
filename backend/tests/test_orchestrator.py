@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from jarvis.core.agent_manager import AgentManager
@@ -42,6 +44,31 @@ async def test_falls_back_when_the_first_agent_hits_its_limit():
     ]
     assert manager.status("a").health is Health.COOLDOWN
     assert manager.status("b").health is Health.COOLDOWN
+
+
+async def test_unexpected_adapter_errors_fall_back_to_the_next_agent():
+    broken = FakeAgent("broken", [KeyError("choices")], priority=90)  # not a ProviderError
+    ok = FakeAgent("ok", priority=10)
+    manager, orch = setup(broken, ok)
+    result = await orch.ask(Conversation(), "oi")
+    assert result.response.agent_id == "ok"
+    assert [(a.agent_id, a.ok) for a in result.attempts] == [("broken", False), ("ok", True)]
+    assert "KeyError" in result.attempts[0].error
+    assert manager.status("broken").health is Health.COOLDOWN
+    assert manager.status("broken").failures == 1
+
+
+async def test_unexpected_errors_in_every_agent_still_end_in_a_clear_error():
+    _, orch = setup(FakeAgent("a", [ValueError("x")]), FakeAgent("b", [TypeError("y")]))
+    with pytest.raises(AllAgentsFailedError) as info:
+        await orch.ask(Conversation(), "oi")
+    assert [a.agent_id for a in info.value.attempts] == ["a", "b"]
+
+
+async def test_cancellation_is_never_swallowed_as_an_agent_failure():
+    _, orch = setup(FakeAgent("a", [asyncio.CancelledError()]), FakeAgent("b"))
+    with pytest.raises(asyncio.CancelledError):
+        await orch.ask(Conversation(), "oi")
 
 
 async def test_agent_in_cooldown_is_skipped_on_the_next_message():

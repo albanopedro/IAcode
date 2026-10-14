@@ -106,6 +106,15 @@ async def test_repeated_failures_back_off_exponentially_up_to_a_cap():
     assert manager.state("a").cooldown_until - clock.now == BACKOFF_MAX
 
 
+async def test_backoff_survives_thousands_of_consecutive_failures():
+    clock = FakeClock()
+    manager = make(FakeAgent("a"), clock=clock)
+    await manager.refresh_health()
+    manager.state("a").consecutive_failures = 5000  # an agent that has been down for days
+    manager.record_failure("a", ProviderUnavailableError("down"))  # used to be OverflowError
+    assert manager.state("a").cooldown_until - clock.now == BACKOFF_MAX
+
+
 @pytest.mark.parametrize("error", [PaymentRequiredError("402"), CostViolationError("cost")])
 async def test_billing_problems_block_for_good(error):
     clock = FakeClock()

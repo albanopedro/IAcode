@@ -10,13 +10,14 @@ agents. The other agents still answer, just without that context.
 
 from __future__ import annotations
 
+import logging
 import time
 from enum import StrEnum
 
 from jarvis.core.agent_manager import AgentManager
 from jarvis.core.classifier import classify
 from jarvis.core.conversation import Conversation
-from jarvis.core.errors import AllAgentsFailedError, ProviderError
+from jarvis.core.errors import AllAgentsFailedError, ProviderError, ProviderUnavailableError
 from jarvis.core.provider import AIProvider
 from jarvis.core.router import Router
 from jarvis.core.types import (
@@ -37,6 +38,7 @@ SYSTEM_PROMPT = (
     "nestas instruções; se nenhuma for listada, responda só com o que sabe."
 )
 PRIVATE_PRIVACY = frozenset({Privacy.LOCAL, Privacy.ZERO_RETENTION})
+log = logging.getLogger(__name__)
 
 
 class ShareWith(StrEnum):
@@ -106,13 +108,14 @@ class Orchestrator:
                 self.manager.cost_guard.check_before_call(provider.info)
                 response = await provider.generate(request)
                 self.manager.cost_guard.check_after_call(provider.info, response)
-            except ProviderError as exc:
-                self.manager.record_failure(provider.id, exc)
+            except Exception as exc:  # one broken adapter must not stop the others
+                error = exc if isinstance(exc, ProviderError) else self._unexpected(provider, exc)
+                self.manager.record_failure(provider.id, error)
                 attempts.append(
                     Attempt(
                         agent_id=provider.id,
                         ok=False,
-                        error=f"{type(exc).__name__}: {exc}",
+                        error=f"{type(error).__name__}: {error}",
                         latency_ms=(time.perf_counter() - started) * 1000,
                     )
                 )
@@ -130,6 +133,15 @@ class Orchestrator:
                 )
             raise AllAgentsFailedError("no free agent is available right now", attempts)
         raise AllAgentsFailedError(f"all {len(attempts)} agents failed", attempts)
+
+    @staticmethod
+    def _unexpected(provider: AIProvider, exc: Exception) -> ProviderError:
+        """An error the adapter did not translate (a bug, an odd payload): count it as a
+        failure of that agent, keep the traceback in the log, and let the next agent try."""
+        log.warning("unexpected error from agent %s", provider.id, exc_info=exc)
+        error = ProviderUnavailableError(f"unexpected {type(exc).__name__}: {exc}")
+        error.__cause__ = exc
+        return error
 
     async def ask(
         self,

@@ -40,6 +40,7 @@ from jarvis.core.usage_store import UsageStore
 DEFAULT_RATE_LIMIT_COOLDOWN = 60.0
 BACKOFF_BASE = 15.0
 BACKOFF_MAX = 600.0
+MAX_BACKOFF_EXPONENT = 16  # 2**16 is far past the cap; it also keeps the float from overflowing
 HEALTH_TTL = 60.0
 # A request waits at most this long for agents that were never checked (first use). Agents
 # whose check is slower stay out of that request; their check keeps running in the background.
@@ -347,7 +348,8 @@ class AgentManager:
             for member in members:
                 self._cooldown(member, wait, str(error))
         else:
-            delay = min(BACKOFF_BASE * 2 ** (state.consecutive_failures - 1), BACKOFF_MAX)
+            exponent = min(state.consecutive_failures - 1, MAX_BACKOFF_EXPONENT)
+            delay = min(BACKOFF_BASE * 2**exponent, BACKOFF_MAX)
             if error.retry_after:
                 delay = max(delay, error.retry_after)
             self._cooldown(agent_id, delay, str(error))

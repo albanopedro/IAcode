@@ -81,6 +81,20 @@ def test_facts_are_deduplicated_found_and_deleted():
     assert len(store.add_fact("x" * 1000).text) == 300
 
 
+def test_find_facts_matches_whole_words_and_ignores_filler():
+    store = MemoryStore()
+    facts = ("Gosto de café", "Moro em Recife", "Minha cor é azul", "Meu aniversário é em março")
+    for text in facts:
+        store.add_fact(text)
+    assert store.find_facts("a") == []  # a misheard "apague a" must not match anything
+    assert store.find_facts("isso") == []
+    assert store.find_facts("cor") == [store.find_facts("azul")[0]]  # whole words, not "cafe"
+    assert store.find_facts("ca") == []  # "ca" is not a word of any fact
+    assert [f.text for f in store.find_facts("o aniversário")] == ["Meu aniversário é em março"]
+    assert [f.text for f in store.find_facts("moro em recife")] == ["Moro em Recife"]
+    assert store.find_facts("moro em Salvador") == []  # every meaningful word must be there
+
+
 # -- commands ---------------------------------------------------------------------
 
 
@@ -127,10 +141,41 @@ def test_memory_commands(text, kind, argument):
         "Como eu faço para lembrar de beber água?",
         "O que você sabe sobre Docker?",
         "lembre",
+        # Verbs that also mean something else, without saying it is about the memory.
+        "Remova as duplicatas desta lista: a, a, b",
+        "Delete os comentários do código",
+        "Apague o arquivo temporário",
+        "Guarde esse código em um arquivo",
+        "Anote os pontos principais do texto",
     ],
 )
 def test_ordinary_messages_are_not_commands(text):
     assert parse(text) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "kind", "argument"),
+    [
+        ("Anota aí: reunião amanhã às 10", CommandKind.REMEMBER, "reunião amanhã às 10"),
+        ("Guarde na memória: minha cor é azul", CommandKind.REMEMBER, "minha cor é azul"),
+        ("Anote que eu moro em Recife", CommandKind.REMEMBER, "eu moro em Recife"),
+        ("Apague que eu moro em Recife", CommandKind.FORGET, "eu moro em Recife"),
+        ("Remova da memória o aniversário", CommandKind.FORGET, "o aniversário"),
+        ("Apague tudo", CommandKind.FORGET_ALL, ""),  # still refused: too destructive
+        ("Apague da memória tudo", CommandKind.FORGET_ALL, ""),
+    ],
+)
+def test_ambiguous_verbs_need_a_memory_marker(text, kind, argument):
+    command = parse(text)
+    if kind is None:
+        assert command is None
+    else:
+        assert command is not None and command.kind is kind and command.argument == argument
+
+
+def test_forget_without_a_marker_is_not_explicit():
+    assert parse("Esqueça as duplicatas").explicit is False
+    assert parse("Esqueça que eu prefiro respostas curtas").explicit is True
 
 
 # -- assistant: local commands ---------------------------------------------------------
@@ -156,6 +201,21 @@ async def test_memory_commands_run_locally_without_any_agent():
     assert "esqueci" in forgot.response.text and store.facts() == []
     assert agent.calls == []
     assert len(conversation.turns) == 10  # the exchanges are part of the history
+
+
+async def test_requests_that_look_like_memory_commands_still_reach_the_agent():
+    agent = FakeAgent("a")
+    store = MemoryStore()
+    store.add_fact("Gosto de café")
+    assistant = Assistant(orchestrator(agent), store, summarize=False)
+    conversation = store.new_conversation()
+
+    for text in ("Remova as duplicatas desta lista: a, a, b", "Esqueça as duplicatas"):
+        result = await assistant.ask(conversation, text)
+        assert result.response.agent_id == "a"  # answered by the agent, not by the memory
+    await assistant.ask(conversation, "Guarde esse código em um arquivo")
+    assert len(agent.calls) == 3
+    assert [f.text for f in store.facts()] == ["Gosto de café"]  # nothing saved or erased
 
 
 # -- assistant: long-term facts go only to private agents ------------------------------

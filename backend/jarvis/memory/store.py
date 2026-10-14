@@ -49,6 +49,16 @@ CREATE TABLE IF NOT EXISTS facts (
 """
 
 MAX_FACT_CHARS = 300
+# Words that say nothing about WHICH fact is meant ("apague a", "esqueça isso").
+STOPWORDS = frozenset(
+    {
+        *("a", "o", "as", "os", "um", "uma", "uns", "umas", "ao", "aos", "e", "se", "me"),
+        *("de", "da", "do", "das", "dos", "em", "na", "no", "nas", "nos", "com", "para"),
+        *("por", "pro", "pra", "que", "eu", "meu", "minha", "meus", "minhas", "seu", "sua"),
+        *("isso", "isto", "esse", "essa", "esses", "essas", "este", "esta", "estes", "estas"),
+        "aquilo",
+    }
+)
 
 
 def normalize(text: str) -> str:
@@ -222,10 +232,15 @@ class MemoryStore:
         return [Fact(*row) for row in rows]
 
     def find_facts(self, query: str) -> list[Fact]:
-        key = normalize(query)
-        if not key:
+        """Facts containing every meaningful word of ``query`` (whole words, any order).
+
+        A query made only of filler words ("a", "isso") matches nothing, so a misheard
+        "apague a" can never wipe out facts that merely contain the letter or the word.
+        """
+        words = {w for w in normalize(query).split() if w not in STOPWORDS}
+        if not words:
             return []
-        return [f for f in self.facts() if key in normalize(f.text)]
+        return [f for f in self.facts() if words <= set(normalize(f.text).split())]
 
     def delete_fact(self, fact_id: int) -> bool:
         return self._write("DELETE FROM facts WHERE id = ?", (fact_id,)).rowcount > 0

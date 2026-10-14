@@ -3,7 +3,9 @@
 - Nothing works until you configure ``allowed_dirs`` (empty by default).
 - Paths are resolved (symlinks included) and must stay inside an allowed folder,
   so "../" tricks and links pointing outside are refused.
-- Secrets are never read: .env files, SSH/GPG/cloud credentials, keys and certificates.
+- Secrets are never read: .env files, SSH/GPG/cloud credentials, keys, certificates,
+  shell histories and git/GitHub tokens. Names are compared in lower case, because
+  macOS volumes ignore case (".SSH" is the same folder as ".ssh").
 - Only text files up to 200 KB. Reading asks for confirmation by default, because
   the content is sent to the agent that answers.
 """
@@ -37,8 +39,35 @@ SECRET_NAMES = (
     "credentials*",
     "*.sqlite",
     "*.db",
+    "*.p8",
+    ".git-credentials",
+    ".pgpass",
+    ".htpasswd",
+    "*_history",
 )
-SECRET_DIRS = frozenset({".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".config/gcloud"})
+# Lower case: a folder name or a "/"-separated path that may appear anywhere in the path.
+SECRET_DIRS = frozenset(
+    {
+        ".ssh",
+        ".gnupg",
+        ".aws",
+        ".azure",
+        ".kube",
+        ".docker",
+        ".git",
+        ".config/gcloud",
+        ".config/gh",
+        "library/keychains",
+    }
+)
+
+
+def is_protected(path: Path) -> bool:
+    """True for secrets: judged by the whole path, in lower case (macOS ignores case)."""
+    lowered = "/" + path.as_posix().lower().strip("/") + "/"
+    return any(f"/{d}/" in lowered for d in SECRET_DIRS) or any(
+        fnmatch.fnmatch(path.name.lower(), pattern) for pattern in SECRET_NAMES
+    )
 
 
 class FileAccess:
@@ -61,11 +90,7 @@ class FileAccess:
         if root is None:
             allowed = ", ".join(str(r) for r in self.roots)
             raise ToolError(f"fora das pastas liberadas ({allowed})")
-        relative = path.relative_to(root).as_posix()
-        parts = set(Path(relative).parts)
-        if any(d in parts or relative.startswith(d + "/") for d in SECRET_DIRS) or any(
-            fnmatch.fnmatch(path.name.lower(), pattern) for pattern in SECRET_NAMES
-        ):
+        if is_protected(path):
             raise ToolError("arquivo protegido (pode conter senhas ou chaves)")
         return path
 

@@ -338,6 +338,13 @@ async def test_read_file_inside_allowed_folder(folder):
         ("/etc/passwd", "fora das pastas"),
         (".env", "protegido"),
         ("chave.pem", "protegido"),
+        # macOS ignores case, so ".SSH" is ".ssh": protection must not depend on spelling.
+        (".SSH/config", "protegido"),
+        (".Aws/credentials", "protegido"),
+        (".CONFIG/GH/hosts.yml", "protegido"),
+        ("projeto/.git/config", "protegido"),
+        (".ZSH_HISTORY", "protegido"),
+        (".git-credentials", "protegido"),
         ("binario.bin", "binário"),
         ("nao-existe.txt", "não encontrado"),
     ],
@@ -345,6 +352,16 @@ async def test_read_file_inside_allowed_folder(folder):
 async def test_read_file_refusals(folder, path, message):
     with pytest.raises(ToolError, match=message):
         await ReadFileTool(FileAccess([folder])).run({"path": path}, ToolContext())
+
+
+async def test_a_folder_inside_a_secret_folder_is_protected_too(tmp_path):
+    secret = tmp_path / ".ssh" / "chaves"
+    secret.mkdir(parents=True)
+    (secret / "nota.txt").write_text("x")
+    with pytest.raises(ToolError, match="protegido"):
+        await ReadFileTool(FileAccess([secret])).run({"path": "nota.txt"}, ToolContext())
+    with pytest.raises(ToolError, match="protegido"):
+        await ListDirTool(FileAccess([tmp_path])).run({"path": ".SSH"}, ToolContext())
 
 
 async def test_file_tools_are_off_without_folders_and_list_hides_dotfiles(folder):

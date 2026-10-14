@@ -72,7 +72,10 @@ class Assistant:
     ) -> OrchestratorResult:
         text = text.strip()
         if self.memory is not None and (command := parse(text)):
-            return self._local(conversation, text, self._run_command(command), local_only)
+            answer = self._run_command(command)
+            if answer is not None:
+                return self._local(conversation, text, answer, local_only)
+            # Not really a memory request ("esqueça as duplicatas…"): the agent answers.
 
         private = None
         if self.memory is not None:
@@ -134,7 +137,8 @@ class Assistant:
 
     # -- local memory commands ------------------------------------------------------
 
-    def _run_command(self, command: MemoryCommand) -> str:
+    def _run_command(self, command: MemoryCommand) -> str | None:
+        """The local answer, or None when the sentence was an ordinary request."""
         memory = self.memory
         assert memory is not None
         if command.kind is CommandKind.REMEMBER:
@@ -145,6 +149,8 @@ class Assistant:
         if command.kind is CommandKind.FORGET:
             matches = memory.find_facts(command.argument)
             if not matches:
+                if not command.explicit:
+                    return None
                 return "Não encontrei nada parecido na minha memória."
             for fact in matches:
                 memory.delete_fact(fact.id)
